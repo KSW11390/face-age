@@ -1,0 +1,3 @@
+name: simple_cnn
+in_channels: 3
+dropout: 0.3

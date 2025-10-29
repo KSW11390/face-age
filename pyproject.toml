@@ -1,0 +1,29 @@
+[project]
+name = "faceage"
+version = "0.1.0"
+description = "Face age estimation (PyTorch, soft classification)"
+requires-python = ">=3.9"
+dependencies = [
+  "torch>=2.2",
+  "torchvision",
+  "tqdm",
+  "omegaconf",
+  "hydra-core",
+  "numpy",
+]
+
+[project.optional-dependencies]
+colab = [
+  "albumentations>=1.4",
+  "opencv-python-headless",
+  "wandb",
+  "torchmetrics",
+]
+dev = ["pytest", "ruff", "black"]
+
+[tool.setuptools] # setuptools에게 패키지가 뭔지 알려줌!
+packages = ["faceage"]
+
+[build-system] # 패키징 툴이 어떤 걸 쓰는지를 나타냄
+requires = ["setuptools>=68"] 
+build-backend = "setuptools.build_meta"

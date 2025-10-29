@@ -1,0 +1,23 @@
+# Core
+torch>=2.2
+torchvision
+tqdm
+numpy
+opencv-python-headless
+
+# Configuration
+omegaconf
+hydra-core
+
+# Augmentation
+albumentations>=1.4
+albumentations[pytorch]
+
+# Logging & Experiment tracking
+wandb
+torchmetrics
+
+# Dev tools (optional but recommended)
+pytest
+black
+ruff

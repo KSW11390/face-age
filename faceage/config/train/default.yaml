@@ -1,0 +1,13 @@
+seed: 42
+epochs: 5
+batch_size: 64
+lr: 1e-4
+optimizer: adamw
+num_workers: 2
+amp: true
+sampler: "none"   # "weighted_by_age" 가능
+wandb:
+  enable: false
+  project: "face-age"
+  name: "baseline"
+checkpoint_dir: "outputs/checkpoints"
