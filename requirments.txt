@@ -1,21 +1,17 @@
-# Core
-torch>=2.2
-torchvision
+# Core (PyTorch/torchvision은 Colab 기본 제공이므로 제외)
 tqdm
 numpy
-opencv-python-headless
+opencv-python-headless>=4.8,<5
 
 # Configuration
 omegaconf
 hydra-core
 
 # Augmentation
-albumentations>=1.4
-albumentations[pytorch]
+albumentations==1.4.10
 
-# Logging & Experiment tracking
+# Logging / Tracking
 wandb
-torchmetrics
 
 # Dev tools (optional but recommended)
 pytest
