@@ -1,25 +1,28 @@
 # faceage/data/transforms.py
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+from PIL import Image
+import torchvision.transforms as T
 
 def build_transforms(train: bool, size: int = 200):
     """
-    최소 증강 버전 (macOS MPS에서도 안전)
-    train=True  -> Flip + 약간의 밝기조절
-    train=False -> 리사이즈만
+    torchvision 기반 최소/안정 증강.
+    - PIL.Image 입력 → torch.Tensor 출력
     """
     if train:
-        tf = A.Compose([
-            A.Resize(size, size),
-            A.HorizontalFlip(p=0.5),
-            A.RandomBrightnessContrast(0.1, 0.1, p=0.3),
-            A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-            ToTensorV2(),
+        tf = T.Compose([
+            T.Resize((size, size)),
+            T.RandomHorizontalFlip(p=0.5),
+            T.ColorJitter(brightness=0.1, contrast=0.1),
+            T.ToTensor(),  # [0,1]
+            T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
         ])
     else:
-        tf = A.Compose([
-            A.Resize(size, size),
-            A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-            ToTensorV2(),
+        tf = T.Compose([
+            T.Resize((size, size)),
+            T.ToTensor(),
+            T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
         ])
     return tf
+
+def to_pil(img_np):
+    """HWC RGB ndarray -> PIL.Image"""
+    return Image.fromarray(img_np)

@@ -1,31 +1,16 @@
-# =========================
-# Core (PyTorch/torchvision은 Colab 기본 제공)
-# =========================
+# Core (PyTorch/torchvision은 Colab에 기본 제공)
 tqdm
-numpy>=1.23,<2.0
-opencv-python-headless>=4.8,<5
+numpy>=1.23   # (<2.0 유지해도 되고, torchvision만 쓰면 2.x도 대개 OK)
+Pillow>=10.0
 
-# =========================
-# Configuration
-# =========================
+# Config (쓰면 유지, 안 쓰면 삭제 가능)
 omegaconf>=2.3.0
 hydra-core>=1.3.2
 
-# =========================
-# Augmentation
-# (albumentations + albucore 호환 버전)
-# =========================
-albumentations==1.4.10
-albucore==0.0.29
-
-# =========================
 # Logging / Tracking
-# =========================
 wandb
 
-# =========================
 # Dev tools (optional)
-# =========================
 pytest
 black
 ruff
