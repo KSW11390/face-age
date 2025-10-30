@@ -1,90 +1,100 @@
-import os, torch
-import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
+import os
+import argparse
+import torch
+import wandb
 from tqdm import tqdm
-import hydra
-from omegaconf import DictConfig, OmegaConf
+from datetime import datetime
 
-from faceage.utils.seed import set_seed
-from faceage.utils.wandb_logger import get_wandb
 from faceage.data.datasets import build_dataloaders
 from faceage.models.cnn import SimpleCNN
 from faceage.models.head import SoftHead
-from faceage.losses.soft_label import soft_ce_loss
-from faceage.metrics.mae import expected_age_from_logits, mae
-from faceage.utils.misc import save_checkpoint
+from faceage.utils.seed import set_seed
 
-def train_one_epoch(model, head, loader, opt, device, scaler=None):
-    model.train(); head.train()
-    total = 0.0
-    for imgs, soft, race, _age in tqdm(loader, desc="Train", leave=False):
-        imgs, soft, race = imgs.to(device), soft.to(device), race.to(device)
-        opt.zero_grad(set_to_none=True)
-        if scaler is not None:
-            with autocast():
-                feat = model(imgs)
-                logits = head(feat, race)
-                loss = soft_ce_loss(logits, soft)
-            scaler.scale(loss).backward()
-            scaler.step(opt); scaler.update()
-        else:
-            feat = model(imgs); logits = head(feat, race); loss = soft_ce_loss(logits, soft)
-            loss.backward(); opt.step()
-        total += loss.item()
-    return total / max(1, len(loader))
+
+def train_one_epoch(model, head, loader, criterion, optimizer, device):
+    model.train()
+    total_loss = 0.0
+    for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
+        imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
+        optimizer.zero_grad()
+        feats = model(imgs)
+        logits = head(feats, races)
+        loss = criterion(logits, labels.argmax(dim=1))
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    return total_loss / len(loader)
+
 
 @torch.no_grad()
-def evaluate(model, head, loader, device):
-    model.eval(); head.eval()
-    maes = []
-    for imgs, _soft, race, age in tqdm(loader, desc="Valid", leave=False):
-        imgs, race, age = imgs.to(device), race.to(device), age.to(device)
-        feat = model(imgs)
-        logits = head(feat, race)
-        pred_age = expected_age_from_logits(logits)
-        maes.append(mae(pred_age, age))
-    return sum(maes) / max(1, len(maes))
+def validate(model, head, loader, criterion, device):
+    model.eval()
+    total_loss = 0.0
+    for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
+        imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
+        feats = model(imgs)
+        logits = head(feats, races)
+        loss = criterion(logits, labels.argmax(dim=1))
+        total_loss += loss.item()
+    return total_loss / len(loader)
 
-@hydra.main(version_base=None, config_path="config", config_name="train/default")
-def main(cfg: DictConfig):
-    print(OmegaConf.to_yaml(cfg))
-    set_seed(cfg.seed)
+
+def main():
+    parser = argparse.ArgumentParser(description="Face-Age Training")
+    parser.add_argument("--data_root", type=str, required=True)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints")
+    parser.add_argument("--augment_minority_only", action="store_true")
+    parser.add_argument("--wandb_project", type=str, default="face-age")
+    args = parser.parse_args()
+
+    os.makedirs(args.save_dir, exist_ok=True)
+    set_seed(42)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🚀 Using device: {device}")
 
-    train_loader, val_loader = build_dataloaders(cfg)
-    featnet = SimpleCNN(in_channels=cfg.model.in_channels).to(device)
-    head = SoftHead(in_dim=128, num_bins=cfg.data.num_bins, use_race=cfg.data.use_race_onehot, dropout=cfg.model.dropout).to(device)
+    # --- W&B init ---
+    wandb.init(project=args.wandb_project, config=vars(args))
+    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    print(f"🔹 Run name: {run_name}")
 
-    params = list(featnet.parameters()) + list(head.parameters())
-    if cfg.train.optimizer.lower() == "adamw":
-        opt = torch.optim.AdamW(params, lr=cfg.train.lr)
-    else:
-        opt = torch.optim.Adam(params, lr=cfg.train.lr)
+    # --- Data ---
+    train_loader, val_loader = build_dataloaders(
+        root=args.data_root,
+        batch_size=args.batch_size,
+        augment_minority_only=args.augment_minority_only,
+    )
 
-    wb = get_wandb(cfg)
-    scaler = GradScaler() if (cfg.amp and device == "cuda") else None
+    # --- Model ---
+    model = SimpleCNN().to(device)
+    head = SoftHead(128, num_bins=86).to(device)
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(list(model.parameters()) + list(head.parameters()), lr=args.lr)
 
-    best = 1e9
-    os.makedirs(cfg.train.checkpoint_dir, exist_ok=True)
+    # --- Training ---
+    for epoch in range(1, args.epochs + 1):
+        train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device)
+        val_loss = validate(model, head, val_loader, criterion, device)
 
-    for epoch in range(1, cfg.epochs+1):
-        tl = train_one_epoch(featnet, head, train_loader, opt, device, scaler)
-        vm = evaluate(featnet, head, val_loader, device)
+        print(f"[{epoch}/{args.epochs}] train_loss={train_loss:.4f}, val_loss={val_loss:.4f}")
+        wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
-        print(f"[Epoch {epoch}] train_loss={tl:.4f} val_mae={vm:.3f}")
-        if hasattr(wb, "log"): wb.log({"epoch": epoch, "train/loss": tl, "val/mae": vm, "lr": opt.param_groups[0]["lr"]})
-
-        if vm < best:
-            best = vm
-            save_checkpoint({
-                "feat": featnet.state_dict(),
+        if epoch % 5 == 0 or epoch == args.epochs:
+            ckpt_path = os.path.join(args.save_dir, f"model_epoch{epoch}.pt")
+            torch.save({
+                "model": model.state_dict(),
                 "head": head.state_dict(),
-                "cfg": OmegaConf.to_container(cfg, resolve=True),
-                "val_mae": vm,
-            }, os.path.join(cfg.train.checkpoint_dir, "best.pt"))
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch
+            }, ckpt_path)
+            print(f"💾 Saved checkpoint → {ckpt_path}")
 
-    if hasattr(wb, "finish"): wb.finish()
-    print(f"Best val MAE: {best:.3f}")
+    wandb.finish()
+    print("✅ Training complete!")
+
 
 if __name__ == "__main__":
     main()

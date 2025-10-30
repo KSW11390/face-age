@@ -4,10 +4,11 @@ __pycache__/
 venv/
 .env
 data/
+datasets/
 outputs/
 wandb/
 *.pt
 *.ckpt
 .ipynb_checkpoints/
-*.egg-info/
-.DS_Store
+faceage.egg-info/
+drive/
