@@ -57,7 +57,10 @@ def main():
     print(f"🚀 Using device: {device}")
 
     # --- W&B init ---
-    wandb.init(project=args.wandb_project, config=vars(args))
+    run = wandb.init(project=args.wandb_project, 
+                     config=vars(args),
+                     job_type="train")   #job_type에 train 명시
+    
     run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
     print(f"🔹 Run name: {run_name}")
 
@@ -95,6 +98,15 @@ def main():
     wandb.finish()
     print("✅ Training complete!")
 
+    # --- Create Artifacts ---
+
+    artifact = wandb.Artifact(name="Simple CNN",
+                              type="model",
+                              description="Trained model weights")
+    artifact.add_file(ckpt_path)
+    run.log_artifact(artifact)
+
+    run.finish
 
 if __name__ == "__main__":
     main()
