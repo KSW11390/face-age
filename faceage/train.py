@@ -5,10 +5,10 @@ import wandb
 from tqdm import tqdm
 from datetime import datetime
 
-from faceage.data.datasets import build_dataloaders
-from faceage.models.cnn import SimpleCNN
-from faceage.models.head import SoftHead
-from faceage.utils.seed import set_seed
+from data.datasets import build_dataloaders
+from models.cnn import SimpleCNN
+from models.head import SoftHead
+from utils.seed import set_seed
 
 
 def train_one_epoch(model, head, loader, criterion, optimizer, device):
