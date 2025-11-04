@@ -12,4 +12,4 @@ wandb/
 *.ckpt
 .ipynb_checkpoints/
 faceage.egg-info/
-drive/
+drive/.DS_Store
