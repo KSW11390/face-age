@@ -93,20 +93,23 @@ def main():
         )
         wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
-        if epoch % 5 == 0 or epoch == args.epochs:
-            ckpt_path = os.path.join(args.save_dir, f"model_epoch{epoch}.pt")
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "head": head.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "epoch": epoch,
-                },
-                ckpt_path,
-            )
-            print(f"💾 Saved checkpoint → {ckpt_path}")
+    
 
     print("✅ Training complete!")
+
+    # --- 체크포인트 저장 ---
+
+    ckpt_path = os.path.join(args.save_dir, f"best-model.pt")
+    torch.save(
+           {
+                "model": model.state_dict(),
+                "head": head.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch,
+            },
+           ckpt_path,
+        )
+    print(f"💾 Saved checkpoint → {ckpt_path}")
 
     # --- Create Model Artifacts ---
 
