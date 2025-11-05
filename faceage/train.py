@@ -19,8 +19,20 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device):
         imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
         optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
         feats = model(imgs) # forwardpass
-        logits = head(feats, races) # 모델 통해 추출한 feature에 인종 정보 결합
-        loss = criterion(logits, labels.argmax(dim=1))
+        
+        if args.label_type == "hard" and args.loss_fn == "ce": # CrossEntropyLoss는 클래스 인덱스를 target으로 받음
+            targets = labels.argmax(dim=1)                          # (B,)
+            loss = criterion(logits, targets)
+        elif args.label_type == "soft" and args.loss_fn == "kld": # KLD: 입력은 log-prob, 타깃은 확률분포
+            log_probs = torch.log_softmax(logits, dim=1)            # (B, C)
+            loss = criterion(log_probs, labels)                     # labels는 (B, C), 합=1
+        elif args.label_type == "soft" and args.loss_fn == "mse": # MSE: 예측 확률 vs 타깃 분포
+            probs = torch.softmax(logits, dim=1)                    # (B, C)
+            loss = criterion(probs, labels)
+
+        else:
+            raise ValueError(f"Incompatible combo: label_type={args.label_type}, loss_fn={args.loss_fn}")
+
         loss.backward() # backprop
         optimizer.step()
         total_loss += loss.item()
@@ -62,6 +74,10 @@ def main():
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
     parser.add_argument("--weight_decay", type=float, default=0.0)
 
+    # Loss
+    parser.add_argument("--label_type", type=str, default="hard", choices=["hard", "soft"], help="라벨 생성 방식 (hard=one-hot, soft=gaussian soft label)")
+    parser.add_argument("--loss_fn", type=str, default="ce", choices=["ce", "mse", "kld"],help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)")
+
     args = parser.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -89,6 +105,7 @@ def main():
         root=args.data_root,
         batch_size=args.batch_size,
         augment_minority_only=args.augment_minority_only,
+        label_type=args.label_type,
     )
 
     # --- Model ---
@@ -102,10 +119,17 @@ def main():
     ).to(device)
 
     head = SoftHead(args.feat_dim, num_bins=86).to(device)
-    criterion = torch.nn.CrossEntropyLoss()
+
+    # Loss
+    if args.loss_fn == "ce":
+        criterion = torch.nn.CrossEntropyLoss()
+    elif args.loss_fn == "mse":
+        criterion = torch.nn.MSELoss()
+    elif args.loss_fn == "kld":
+        criterion = torch.nn.KLDivLoss(reduction="batchmean")
     
+    # Optimizer
     params = list(model.parameters()) + list(head.parameters())
-    
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     elif args.optimizer == "adamw":
@@ -113,6 +137,7 @@ def main():
     else:  # sgd
         optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9,
                                     weight_decay=args.weight_decay, nesterov=True)
+
     # --- Training ---
     best_val = float("inf")  # 지금까지 최소 val_loss
     bad_epochs = 0           # 개선 없는 epoch 수

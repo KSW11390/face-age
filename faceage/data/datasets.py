@@ -59,6 +59,7 @@ class UTKFaceCfg:
     img_size: int = 200
     num_bins: int = 86
     sigma: float = 1.5
+    label_type: str = "soft" # "soft" | "hard"
     augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
 
 class UTKFaceDataset(Dataset):
@@ -98,10 +99,14 @@ class UTKFaceDataset(Dataset):
         else:
             img = self.tf_eval(img_pil)
 
-        soft = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)  # (num_bins,)
-        race1h = _race_one_hot(race)                                 # (5,)
+        if self.cfg.label_type == "soft":
+            label = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)
+        else:
+            label = torch.zeros(self.cfg.num_bins, dtype=torch.float32)
+            label[min(int(age), self.cfg.num_bins - 1)] = 1.0
 
-        return img.float(), soft.float(), race1h, torch.tensor(age, dtype=torch.long)
+        race1h = _race_one_hot(race)
+        return img.float(), label.float(), race1h, torch.tensor(age, dtype=torch.long)
 
 # ---------- DataLoader Builder ----------
 
@@ -124,6 +129,7 @@ def build_dataloaders(
     img_size: int = 200,
     num_bins: int = 86,
     sigma: float = 1.5,
+    label_type: str = "soft",
     augment_minority_only: bool = False,
     val_ratio: float = 0.1,
     seed: int = 42,
@@ -137,12 +143,21 @@ def build_dataloaders(
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)
 
     train_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root, split="train", img_size=img_size, num_bins=num_bins, sigma=sigma,
+        root=root,
+        split="train",
+        img_size=img_size,
+        num_bins=num_bins,
+        sigma=sigma,
+        label_type=label_type,
         augment_minority_only=augment_minority_only
     ), file_list=train_list)
 
     val_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root, split="val", img_size=img_size, num_bins=num_bins, sigma=sigma,
+        root=root,
+        split="val",
+        img_size=img_size, num_bins=num_bins,
+        sigma=sigma,
+        label_type=label_type,
         augment_minority_only=False
     ), file_list=val_list)
 
