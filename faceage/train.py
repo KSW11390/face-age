@@ -15,16 +15,19 @@ from faceage.utils.seed import set_seed
 
 def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str):
     model.train()
-    total_loss = 0.0
+    total_loss, total_mae = 0.0, 0.0
+    count = 0
+    bins = torch.arange(labels.size(1), device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
-        imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
+        imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
 
         optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
 
         feats = model(imgs) # (Batch, feat_dim)
         logits = head(feats, races) # (Batch, num_bins)
 
+        # Loss
         if label_type == "hard" and loss_fn == "ce": # CrossEntropyLoss
             targets = labels.argmax(dim=1)
             loss = criterion(logits, targets)
@@ -37,24 +40,35 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
         else:
             raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
 
-        loss.backward() # backprop
-        optimizer.step()
-        total_loss += loss.item()
+        # MAE
+        probs = F.softmax(logits, dim=1)
+        pred_age = (probs * bins).sum(dim=1)
+        mae = (pred_age - ages.float()).abs().mean()
 
-    return total_loss / len(loader)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        total_mae += mae.item()
+        count += 1
+
+    return total_loss / count, total_mae / count
 
 
 @torch.no_grad()
 def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str):
     model.eval()
-    total_loss = 0.0
+    total_loss, total_mae = 0.0, 0.0
+    count = 0
 
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
-        imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
+        imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
 
         feats  = model(imgs)
         logits = head(feats, races)
+        bins = torch.arange(labels.size(1), device=device, dtype=torch.float32)
 
+        # Loss
         if label_type == "hard" and loss_fn == "ce":
             targets = labels.argmax(dim=1)
             loss = criterion(logits, targets)
@@ -68,9 +82,16 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
         else:
             raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
 
-        total_loss += loss.item()
+        # === MAE ===
+        probs = F.softmax(logits, dim=1)
+        pred_age = (probs * bins).sum(dim=1)
+        mae = (pred_age - ages.float()).abs().mean()
 
-    return total_loss / len(loader)
+        total_loss += loss.item()
+        total_mae += mae.item()
+        count += 1
+
+    return total_loss / count, total_mae / count
 
 
 def main():
@@ -107,7 +128,8 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🚀 Using device: {device}")
-
+    
+    # Activation Function
     ACT = {
         "relu": nn.ReLU(),
         "leakyrelu": nn.LeakyReLU(0.1),
@@ -115,8 +137,15 @@ def main():
         "elu": nn.ELU(),
     }[args.activation]
 
-    # ✅ W&B run name (depth 제거, feat_dim/width 사용)
-    run_name = f"{args.model_type.upper()}_W{args.width}_F{args.feat_dim}_{args.activation}"
+    # WandB run_name
+    run_name = (
+        f"{args.model_type.upper()}_"
+        f"{args.loss_fn}_"
+        f"{args.activation}_"
+        f"sig{args.sigma}_"
+        f"drop{args.dropout}_"
+        f"wd{args.weight_decay}"
+    )
     wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
     wandb.define_metric("epoch")
@@ -164,22 +193,30 @@ def main():
     # --- Training ---
     best_val = float("inf")  # 지금까지 최소 val_loss
     bad_epochs = 0           # 개선 없는 epoch 수
+    
+
+    # 총 Parameter 수
+    params_total = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in head.parameters())
+    params_train = sum(p.numel() for p in model.parameters() if p.requires_grad) + \
+                sum(p.numel() for p in head.parameters() if p.requires_grad)
+    
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn)
-        val_loss = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn)
+        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn)
+        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn)
 
         current_lr = optimizer.param_groups[0]["lr"]
 
         # 콘솔 출력
         print(f"[{epoch}/{args.epochs}] "
-              f"train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, lr={current_lr:.2e}")
+            f"train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
+            f"train_mae={train_mae:.2f}, val_mae={val_mae:.2f}, lr={current_lr:.2e}")
 
-        # === Early Stopping ===
-        if val_loss < best_val - 1e-6:  # 개선 발생 시
+        # === Early Stopping (Val Loss 기준) ===
+        if val_loss < best_val - 1e-6:
             best_val = val_loss
             bad_epochs = 0
 
-            # best checkpoint 따로 저장
+            # best checkpoint 저장
             best_ckpt = os.path.join(args.save_dir, f"best_{args.model_type}_W{args.width}_F{args.feat_dim}.pt")
             torch.save({
                 "model": model.state_dict(),
@@ -188,7 +225,9 @@ def main():
                 "epoch": epoch
             }, best_ckpt)
             print(f"🌟 New best model saved (val_loss={val_loss:.4f}) → {best_ckpt}")
-            wandb.log({"checkpoint/best_epoch": epoch, "checkpoint/best_val_loss": val_loss})
+            wandb.log({"checkpoint/best_epoch": epoch,
+                   "checkpoint/best_val_loss": val_loss,
+                   "checkpoint/best_val_mae": val_mae})
         else:
             bad_epochs += 1
             if bad_epochs >= args.patience:
@@ -198,19 +237,21 @@ def main():
         # === W&B 로깅 ===
         wandb.log({
             "epoch": epoch,
-            "train/loss": train_loss,
-            "val/loss": val_loss,
+            "loss/train": train_loss,
+            "loss/val": val_loss,
+            "mae/train": train_mae,
+            "mae/val": val_mae,
             "train/val_loss_gap": abs(train_loss - val_loss),
             "lr": current_lr,
-            "params/total": sum(p.numel() for p in model.parameters()) +
-                            sum(p.numel() for p in head.parameters()),
-            "params/trainable": sum(p.numel() for p in model.parameters() if p.requires_grad) +
-                                sum(p.numel() for p in head.parameters() if p.requires_grad)
+            "params/total": params_total,
+            "params/trainable": params_train,
         })
 
-        # ✅ ckpt_path는 루프 안에서 epoch로 생성
+        # epoch 5번마다 Checkpoint 저장
         if epoch % 5 == 0 or epoch == args.epochs:
-            ckpt_path = os.path.join(args.save_dir, f"{args.model_type}_W{args.width}_F{args.feat_dim}_E{epoch}.pt")
+            ckpt_path = os.path.join(
+                args.save_dir, f"{args.model_type}_W{args.width}_F{args.feat_dim}_E{epoch}.pt"
+            )
             torch.save({
                 "model": model.state_dict(),
                 "head": head.state_dict(),
