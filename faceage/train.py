@@ -13,11 +13,11 @@ from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
-def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str):
+def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int):
     model.train()
     total_loss, total_mae = 0.0, 0.0
     count = 0
-    bins = torch.arange(labels.size(1), device=device, dtype=torch.float32)
+    bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
         imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
@@ -56,17 +56,17 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
 
 @torch.no_grad()
-def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str):
+def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str, num_bins: int):
     model.eval()
     total_loss, total_mae = 0.0, 0.0
     count = 0
+    bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
         imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
 
         feats  = model(imgs)
         logits = head(feats, races)
-        bins = torch.arange(labels.size(1), device=device, dtype=torch.float32)
 
         # Loss
         if label_type == "hard" and loss_fn == "ce":
