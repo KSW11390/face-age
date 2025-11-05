@@ -1,4 +1,5 @@
-import torch, os
+import torch
+import os
 import hydra
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -16,10 +17,12 @@ def main(cfg: DictConfig):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     featnet = SimpleCNN(in_channels=cfg.model.in_channels).to(device)
     head = SoftHead(in_dim=128, num_bins=cfg.data.num_bins, use_race=cfg.data.use_race_onehot, dropout=cfg.model.dropout).to(device)
-    featnet.load_state_dict(ckpt["feat"]); head.load_state_dict(ckpt["head"])
+    featnet.load_state_dict(ckpt["feat"])
+    head.load_state_dict(ckpt["head"])
 
     _, val_loader = build_dataloaders(cfg)
-    featnet.eval(); head.eval()
+    featnet.eval()
+    head.eval()
     maes=[]
     with torch.no_grad():
         for imgs, _soft, race, age in tqdm(val_loader, desc="Eval"):

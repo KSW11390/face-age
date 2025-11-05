@@ -1,4 +1,3 @@
-import os
 class NullLogger:
     def __init__(self): pass
     def log(self, *a, **kw): pass

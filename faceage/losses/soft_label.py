@@ -1,4 +1,3 @@
-import torch
 import torch.nn.functional as F
 
 def soft_ce_loss(logits, soft_targets):

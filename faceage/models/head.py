@@ -1,4 +1,5 @@
-import torch, torch.nn as nn
+import torch
+import torch.nn as nn
 
 class SoftHead(nn.Module):
     def __init__(self, in_dim:int, num_bins:int, race_dim:int=5, dropout:float=0.0, use_race=True):

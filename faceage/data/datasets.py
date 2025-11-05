@@ -1,5 +1,7 @@
 # faceage/data/datasets.py
-import os, glob, hashlib
+import os 
+import glob
+import hashlib
 from dataclasses import dataclass
 from typing import Tuple, List, Optional
 import numpy as np
@@ -148,8 +150,10 @@ def build_dataloaders(
 
     if num_workers is None or pin_memory is None:
         d = _env_defaults()
-        if num_workers is None: num_workers = d["num_workers"]
-        if pin_memory is None: pin_memory = d["pin_memory"]
+        if num_workers is None: 
+            num_workers = d["num_workers"]
+        if pin_memory is None: 
+            pin_memory = d["pin_memory"]
 
     g = torch.Generator()
     g.manual_seed(seed)

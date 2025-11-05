@@ -1,7 +1,6 @@
 ## option -> 필요 시 사용 ##
 
 import torch
-import torch.nn.functional as F
 
 def coral_levels(age, num_bins):
     # levels[k] = 1 if age > k  (0..num_bins-2) 형태
