@@ -3,6 +3,7 @@ import argparse
 import torch
 import wandb
 import torch.nn as nn
+import torch.nn.functional as F 
 from tqdm import tqdm
 from datetime import datetime
 
