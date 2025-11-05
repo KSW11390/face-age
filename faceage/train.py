@@ -12,13 +12,12 @@ from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
-
 def train_one_epoch(model, head, loader, criterion, optimizer, device):
     model.train()
     total_loss = 0.0
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
         imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
-        optimizer.zero_grad() # 이전 batch의 gradient 초기화
+        optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
         feats = model(imgs) # forwardpass
         logits = head(feats, races) # 모델 통해 추출한 feature에 인종 정보 결합
         loss = criterion(logits, labels.argmax(dim=1))
@@ -69,7 +68,6 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🚀 Using device: {device}")
 
-   # ✅ ACT 정의
     ACT = {
         "relu": nn.ReLU(),
         "leakyrelu": nn.LeakyReLU(0.1),
@@ -93,8 +91,8 @@ def main():
         in_channels=3,
         feat_dim=args.feat_dim,
         width=args.width,
-        depth=args.depth,
         activation=ACT,
+        dropout=args.dropout
     ).to(device)
 
     head = SoftHead(args.feat_dim, num_bins=86).to(device)
