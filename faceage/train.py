@@ -123,7 +123,7 @@ def main():
         type="dataset",
         description="Initial dataset from source, before filtering",
     )
-    data_artifact.add_dir("/Users/iseunghun/Desktop/ML/raw_image_data-v0")
+    data_artifact.add_dir("/content/UTKFace")
     run.log_artifact(data_artifact)
 
     run.finish
