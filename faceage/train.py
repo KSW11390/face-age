@@ -7,6 +7,7 @@ from datetime import datetime
 
 from faceage.data.datasets import build_dataloaders
 from faceage.models.cnn import SimpleCNN
+from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
@@ -16,11 +17,11 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device):
     total_loss = 0.0
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
         imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
-        optimizer.zero_grad()
-        feats = model(imgs)
-        logits = head(feats, races)
+        optimizer.zero_grad() # 이전 batch의 gradient 초기화
+        feats = model(imgs) # forwardpass
+        logits = head(feats, races) # 모델 통해 추출한 feature에 인종 정보 결합
         loss = criterion(logits, labels.argmax(dim=1))
-        loss.backward()
+        loss.backward() # backprop
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(loader)
@@ -48,6 +49,16 @@ def main():
     parser.add_argument("--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints")
     parser.add_argument("--augment_minority_only", action="store_true")
     parser.add_argument("--wandb_project", type=str, default="face-age")
+
+    # === 추가 인자 ===
+    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
+    parser.add_argument("--weight_decay", type=float, default=0.0)
+    parser.add_argument("--step_size", type=int, default=10)
+    parser.add_argument("--gamma", type=float, default=0.5)
+    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--model_type", type=str, default="vgg", choices=["vgg", "resnet"])
+
     args = parser.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -57,9 +68,13 @@ def main():
     print(f"🚀 Using device: {device}")
 
     # --- W&B init ---
-    wandb.init(project=args.wandb_project, config=vars(args))
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    print(f"🔹 Run name: {run_name}")
+    run_name = f"{args.model_type.upper()}_W{args.width}_D{args.depth}_{args.activation}"
+    wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
+
+    ckpt_path = os.path.join(
+        args.save_dir,
+        f"{args.model_type}_W{args.width}_D{args.depth}_E{epoch}.pt"
+    )
 
     # --- Data ---
     train_loader, val_loader = build_dataloaders(
@@ -69,10 +84,19 @@ def main():
     )
 
     # --- Model ---
-    model = SimpleCNN().to(device)
+    model = build_model(
+        kind=args.model_type,
+        in_channels=3,
+        feat_dim=args.feat_dim,
+        width=args.width,
+        depth=args.depth,
+        activation=ACT,
+    ).to(device)
+
     head = SoftHead(128, num_bins=86).to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(head.parameters()), lr=args.lr)
+    params = list(model.parameters()) + list(head.parameters())
+    optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
 
     # --- Training ---
     for epoch in range(1, args.epochs + 1):
