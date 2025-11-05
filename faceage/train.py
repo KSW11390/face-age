@@ -60,11 +60,18 @@ def main():
     run = wandb.init(
         project=args.wandb_project, config=vars(args), job_type="train"
     )
-    artifact_path = "HongikML/face-age/face-age:latest" 
-    artifact = run.use_artifact(artifact_path, type="model")
 
-    artifact_dir = artifact.download()
-    model_path = f"{artifact_dir}/model.pt"    
+    # --- load latest model artifact ---
+    model_artifact_path = "HongikML/face-age/face-age:latest" 
+    model_artifact = run.use_artifact(model_artifact_path, type="model")
+    model_artifact_dir = model_artifact.download()
+    model_path = f"{model_artifact_dir}/model.pt"    
+
+    # --- load latest dataset ---
+    datatset_artifact_path = "HongikML/face-age/raw_image_data:latest"
+    dataset_artifact = run.use_artifact(datatset_artifact_path, type="dataset")
+    dataset_dir = dataset_artifact.download()
+
 
     run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
     print(f"🔹 Run name: {run_name}")
@@ -79,7 +86,7 @@ def main():
     # --- Model ---
     model = SimpleCNN().to(device)
     state_dict = torch.load(model_path)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict['model'])
     head = SoftHead(128, num_bins=86).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
