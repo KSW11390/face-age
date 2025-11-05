@@ -45,7 +45,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints")
+    parser.add_argument(
+        "--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints"
+    )
     parser.add_argument("--augment_minority_only", action="store_true")
     parser.add_argument("--wandb_project", type=str, default="face-age")
     args = parser.parse_args()
@@ -57,10 +59,10 @@ def main():
     print(f"🚀 Using device: {device}")
 
     # --- W&B init ---
-    run = wandb.init(project=args.wandb_project, 
-                     config=vars(args),
-                     job_type="train")   #job_type에 train 명시
-    
+    run = wandb.init(
+        project=args.wandb_project, config=vars(args), job_type="train"
+    )  # job_type에 train 명시
+
     run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
     print(f"🔹 Run name: {run_name}")
 
@@ -75,37 +77,47 @@ def main():
     model = SimpleCNN().to(device)
     head = SoftHead(128, num_bins=86).to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(list(model.parameters()) + list(head.parameters()), lr=args.lr)
+    optimizer = torch.optim.Adam(
+        list(model.parameters()) + list(head.parameters()), lr=args.lr
+    )
 
     # --- Training ---
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device)
+        train_loss = train_one_epoch(
+            model, head, train_loader, criterion, optimizer, device
+        )
         val_loss = validate(model, head, val_loader, criterion, device)
 
-        print(f"[{epoch}/{args.epochs}] train_loss={train_loss:.4f}, val_loss={val_loss:.4f}")
+        print(
+            f"[{epoch}/{args.epochs}] train_loss={train_loss:.4f}, val_loss={val_loss:.4f}"
+        )
         wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
         if epoch % 5 == 0 or epoch == args.epochs:
             ckpt_path = os.path.join(args.save_dir, f"model_epoch{epoch}.pt")
-            torch.save({
-                "model": model.state_dict(),
-                "head": head.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch
-            }, ckpt_path)
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "head": head.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "epoch": epoch,
+                },
+                ckpt_path,
+            )
             print(f"💾 Saved checkpoint → {ckpt_path}")
 
     print("✅ Training complete!")
 
     # --- Create Artifacts ---
 
-    artifact = wandb.Artifact(name="Simple-CNN",
-                              type="model",
-                              description="Trained model weights")
+    artifact = wandb.Artifact(
+        name="Simple-CNN", type="model", description="Trained model weights"
+    )
     artifact.add_file(ckpt_path)
     run.log_artifact(artifact)
 
     run.finish
+
 
 if __name__ == "__main__":
     main()

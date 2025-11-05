@@ -1,5 +1,5 @@
 # faceage/data/datasets.py
-import os 
+import os
 import glob
 import hashlib
 from dataclasses import dataclass
@@ -15,12 +15,14 @@ from .transforms import build_transforms, to_pil
 RACE_NAMES = ["White", "Black", "Asian", "Indian", "Others"]
 NUM_RACES = len(RACE_NAMES)
 
+
 def _parse_utkface_filename(path: str) -> Tuple[int, int, int]:
     base = os.path.basename(path)
     stem = base.split(".")[0]  # "23_0_2_201701161745"
     parts = stem.split("_")
     age, gender, race = int(parts[0]), int(parts[1]), int(parts[2])
     return age, gender, race
+
 
 def _soft_label(age: int, num_bins: int = 86, sigma: float = 1.5) -> torch.Tensor:
     age = max(0, min(num_bins - 1, int(age)))
@@ -29,18 +31,23 @@ def _soft_label(age: int, num_bins: int = 86, sigma: float = 1.5) -> torch.Tenso
     g /= g.sum() + 1e-8
     return torch.from_numpy(g)
 
+
 def _race_one_hot(race: int) -> torch.Tensor:
     idx = min(max(int(race), 0), NUM_RACES - 1)
     v = torch.zeros(NUM_RACES, dtype=torch.float32)
     v[idx] = 1.0
     return v
 
+
 def _imread_rgb(path: str) -> np.ndarray:
     # PIL로 읽어서 RGB ndarray(HWC) 반환
     img = Image.open(path).convert("RGB")
     return np.array(img)
 
-def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[str], List[str]]:
+
+def _stable_split(
+    paths: List[str], val_ratio: float, seed: int
+) -> Tuple[List[str], List[str]]:
     keys = []
     for p in paths:
         h = hashlib.md5((p + str(seed)).encode()).hexdigest()
@@ -54,14 +61,16 @@ def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[s
         (val if i in val_idx else train).append(p)
     return train, val
 
+
 @dataclass
 class UTKFaceCfg:
     root: str
-    split: str = "train"           # "train" | "val"
+    split: str = "train"  # "train" | "val"
     img_size: int = 200
     num_bins: int = 86
     sigma: float = 1.5
     augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
+
 
 class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
@@ -76,7 +85,7 @@ class UTKFaceDataset(Dataset):
             self.paths = file_list
 
         self.tf_train = build_transforms(train=True, size=cfg.img_size)
-        self.tf_eval  = build_transforms(train=False, size=cfg.img_size)
+        self.tf_eval = build_transforms(train=False, size=cfg.img_size)
 
     def __len__(self) -> int:
         return len(self.paths)
@@ -88,8 +97,8 @@ class UTKFaceDataset(Dataset):
         except Exception:
             return self.__getitem__((idx + 1) % len(self.paths))
 
-        img_np = _imread_rgb(path)   # HWC RGB ndarray
-        img_pil = to_pil(img_np)     # PIL.Image
+        img_np = _imread_rgb(path)  # HWC RGB ndarray
+        img_pil = to_pil(img_np)  # PIL.Image
 
         # 증강 규칙 (train 시 비백인만 증강 옵션)
         if self.cfg.split == "train":
@@ -101,16 +110,20 @@ class UTKFaceDataset(Dataset):
             img = self.tf_eval(img_pil)
 
         soft = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)  # (num_bins,)
-        race1h = _race_one_hot(race)                                 # (5,)
+        race1h = _race_one_hot(race)  # (5,)
 
         return img.float(), soft.float(), race1h, torch.tensor(age, dtype=torch.long)
 
+
 # ---------- DataLoader Builder ----------
+
 
 def _seed_worker(worker_id):
     import random
+
     np.random.seed(torch.initial_seed() % 2**32)
     random.seed(torch.initial_seed() % 2**32)
+
 
 def _env_defaults():
     # Colab(CUDA)면 workers/pin_memory 상승, macOS MPS/CPU면 안전값
@@ -118,6 +131,7 @@ def _env_defaults():
         return dict(num_workers=2, pin_memory=True)
     else:
         return dict(num_workers=0, pin_memory=False)
+
 
 def build_dataloaders(
     root: str,
@@ -138,34 +152,58 @@ def build_dataloaders(
 
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)
 
-    train_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root, split="train", img_size=img_size, num_bins=num_bins, sigma=sigma,
-        augment_minority_only=augment_minority_only
-    ), file_list=train_list)
+    train_ds = UTKFaceDataset(
+        UTKFaceCfg(
+            root=root,
+            split="train",
+            img_size=img_size,
+            num_bins=num_bins,
+            sigma=sigma,
+            augment_minority_only=augment_minority_only,
+        ),
+        file_list=train_list,
+    )
 
-    val_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root, split="val", img_size=img_size, num_bins=num_bins, sigma=sigma,
-        augment_minority_only=False
-    ), file_list=val_list)
+    val_ds = UTKFaceDataset(
+        UTKFaceCfg(
+            root=root,
+            split="val",
+            img_size=img_size,
+            num_bins=num_bins,
+            sigma=sigma,
+            augment_minority_only=False,
+        ),
+        file_list=val_list,
+    )
 
     if num_workers is None or pin_memory is None:
         d = _env_defaults()
-        if num_workers is None: 
+        if num_workers is None:
             num_workers = d["num_workers"]
-        if pin_memory is None: 
+        if pin_memory is None:
             pin_memory = d["pin_memory"]
 
     g = torch.Generator()
     g.manual_seed(seed)
 
     train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=pin_memory,
-        worker_init_fn=_seed_worker, generator=g, drop_last=False
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        worker_init_fn=_seed_worker,
+        generator=g,
+        drop_last=False,
     )
     val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=pin_memory,
-        worker_init_fn=_seed_worker, generator=g, drop_last=False
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        worker_init_fn=_seed_worker,
+        generator=g,
+        drop_last=False,
     )
     return train_loader, val_loader

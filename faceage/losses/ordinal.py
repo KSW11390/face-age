@@ -2,11 +2,13 @@
 
 import torch
 
+
 def coral_levels(age, num_bins):
     # levels[k] = 1 if age > k  (0..num_bins-2) 형태
-    levels = torch.zeros(num_bins-1, dtype=torch.float32)
-    levels[:max(age,0)] = 1.0
+    levels = torch.zeros(num_bins - 1, dtype=torch.float32)
+    levels[: max(age, 0)] = 1.0
     return levels
+
 
 def coral_loss(logits, levels):
     # logits: (B, K-1), levels: (B, K-1) with {0,1}
