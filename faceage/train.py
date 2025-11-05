@@ -50,12 +50,15 @@ def main():
     parser.add_argument("--augment_minority_only", action="store_true") # data 불균형 해결용 옵션
     parser.add_argument("--wandb_project", type=str, default="face-age") # wandb project name
 
-    # === 추가 인자 ===
-    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
-    parser.add_argument("--weight_decay", type=float, default=0.0) # l2 regularization
-    parser.add_argument("--dropout", type=float, default=0.0)
+    # --- 모델/옵션 ---
     parser.add_argument("--model_type", type=str, default="vgg", choices=["vgg", "resnet"])
+    parser.add_argument("--feat_dim", type=int, default=128)   # ✅ 추가
+    parser.add_argument("--width", type=int, default=64)       # ✅ 추가
+    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
+    parser.add_argument("--dropout", type=float, default=0.0)
+    # --- 옵티마이저 ---
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
+    parser.add_argument("--weight_decay", type=float, default=0.0)
 
     args = parser.parse_args()
 
@@ -65,15 +68,17 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🚀 Using device: {device}")
 
-    # --- W&B init ---
+   # ✅ ACT 정의
+    ACT = {
+        "relu": nn.ReLU(),
+        "leakyrelu": nn.LeakyReLU(0.1),
+        "gelu": nn.GELU(),
+        "elu": nn.ELU(),
+    }[args.activation]
+
+    # ✅ W&B run name (depth 제거, feat_dim/width 사용)
     run_name = f"{args.model_type.upper()}_W{args.width}_F{args.feat_dim}_{args.activation}"
     wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
-
-    ckpt_path = os.path.join(
-        args.save_dir,
-        f"{args.model_type}_W{args.width}_D{args.depth}_E{epoch}.pt"
-    )
-
     # --- Data ---
     train_loader, val_loader = build_dataloaders(
         root=args.data_root,
@@ -127,9 +132,9 @@ def main():
                                 sum(p.numel() for p in head.parameters() if p.requires_grad)
         })
 
-        # --- Checkpoint 저장 ---
+        # ✅ ckpt_path는 루프 안에서 epoch로 생성
         if epoch % 5 == 0 or epoch == args.epochs:
-            ckpt_path = os.path.join(args.save_dir, f"model_epoch{epoch}.pt")
+            ckpt_path = os.path.join(args.save_dir, f"{args.model_type}_W{args.width}_F{args.feat_dim}_E{epoch}.pt")
             torch.save({
                 "model": model.state_dict(),
                 "head": head.state_dict(),
@@ -137,9 +142,10 @@ def main():
                 "epoch": epoch
             }, ckpt_path)
             print(f"💾 Saved checkpoint → {ckpt_path}")
-            # 저장 이벤트도 로그
             wandb.log({"checkpoint/saved_epoch": epoch})
 
+    wandb.finish()
+    print("✅ Training complete!")
 
 if __name__ == "__main__":
     main()
