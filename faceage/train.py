@@ -4,12 +4,10 @@ import torch
 import wandb
 from tqdm import tqdm
 from datetime import datetime
-
 from faceage.data.datasets import build_dataloaders
 from faceage.models.cnn import SimpleCNN
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
-
 
 def train_one_epoch(model, head, loader, criterion, optimizer, device):
     model.train()
@@ -46,7 +44,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument(
-        "--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints"
+        "--save_dir", type=str, default="/content/drive/MyDrive/MLProject/checkpoints"
     )
     parser.add_argument("--augment_minority_only", action="store_true")
     parser.add_argument("--wandb_project", type=str, default="face-age")
@@ -61,7 +59,12 @@ def main():
     # --- W&B init ---
     run = wandb.init(
         project=args.wandb_project, config=vars(args), job_type="train"
-    )  # job_type에 train 명시
+    )
+    artifact_path = "HongikML/face-age/face-age:latest" 
+    artifact = run.use_artifact(artifact_path, type="model")
+
+    artifact_dir = artifact.download()
+    model_path = f"{artifact_dir}/model.pt"    
 
     run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
     print(f"🔹 Run name: {run_name}")
@@ -75,6 +78,8 @@ def main():
 
     # --- Model ---
     model = SimpleCNN().to(device)
+    state_dict = torch.load(model_path)
+    model.load_state_dict(state_dict)
     head = SoftHead(128, num_bins=86).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
@@ -93,12 +98,9 @@ def main():
         )
         wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
-    
-
     print("✅ Training complete!")
 
     # --- 체크포인트 저장 ---
-
     ckpt_path = os.path.join(args.save_dir, "model.pt")
     torch.save(
            {
@@ -107,20 +109,18 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch,
             },
-           ckpt_path,
-        )
+           ckpt_path
+    )
     print(f"💾 Saved checkpoint → {ckpt_path}")
 
     # --- Create Model Artifacts ---
-
     model_artifact = wandb.Artifact(
         name="face-age", type="model", description="Trained model weights"
     )
-    model_artifact.add_file("/content/drive/MyDrive/face-age/checkpoints/model.pt")
+    model_artifact.add_file("/content/drive/MyDrive/MLProject/checkpoints/model.pt")
     run.log_artifact(model_artifact)
 
     # --- Create Dataset Artifacts ---
-
     data_artifact = wandb.Artifact(
         name="raw_image_data",
         type="dataset",
