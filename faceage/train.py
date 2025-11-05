@@ -12,43 +12,63 @@ from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
-def train_one_epoch(model, head, loader, criterion, optimizer, device):
+def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str):
     model.train()
     total_loss = 0.0
+
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
         imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
-        optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
-        feats = model(imgs) # forwardpass
-        
-        if args.label_type == "hard" and args.loss_fn == "ce": # CrossEntropyLoss는 클래스 인덱스를 target으로 받음
-            targets = labels.argmax(dim=1)                          # (B,)
-            loss = criterion(logits, targets)
-        elif args.label_type == "soft" and args.loss_fn == "kld": # KLD: 입력은 log-prob, 타깃은 확률분포
-            log_probs = torch.log_softmax(logits, dim=1)            # (B, C)
-            loss = criterion(log_probs, labels)                     # labels는 (B, C), 합=1
-        elif args.label_type == "soft" and args.loss_fn == "mse": # MSE: 예측 확률 vs 타깃 분포
-            probs = torch.softmax(logits, dim=1)                    # (B, C)
-            loss = criterion(probs, labels)
 
+        optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
+
+        feats = model(imgs) # (Batch, feat_dim)
+        logits = head(feats, races) # (Batch, num_bins)
+
+        if label_type == "hard" and loss_fn == "ce": # CrossEntropyLoss
+            targets = labels.argmax(dim=1)
+            loss = criterion(logits, targets)
+        elif label_type == "soft" and loss_fn == "kld": # KLD
+            log_probs = torch.log_softmax(logits, dim=1) 
+            loss = criterion(log_probs, labels)
+        elif label_type == "soft" and loss_fn == "mse": # MSE
+            probs = torch.softmax(logits, dim=1)
+            loss = criterion(probs, labels)
         else:
-            raise ValueError(f"Incompatible combo: label_type={args.label_type}, loss_fn={args.loss_fn}")
+            raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
 
         loss.backward() # backprop
         optimizer.step()
         total_loss += loss.item()
+
     return total_loss / len(loader)
 
 
 @torch.no_grad()
-def validate(model, head, loader, criterion, device):
+def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str):
     model.eval()
     total_loss = 0.0
+
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
         imgs, labels, races = imgs.to(device), labels.to(device), races.to(device)
-        feats = model(imgs)
+
+        feats  = model(imgs)
         logits = head(feats, races)
-        loss = criterion(logits, labels.argmax(dim=1))
+
+        if label_type == "hard" and loss_fn == "ce":
+            targets = labels.argmax(dim=1)
+            loss = criterion(logits, targets)
+
+        elif label_type == "soft" and loss_fn == "kld":
+            loss = criterion(F.log_softmax(logits, dim=1), labels)
+
+        elif label_type == "soft" and loss_fn == "mse":
+            loss = criterion(F.softmax(logits, dim=1), labels)
+
+        else:
+            raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
+
         total_loss += loss.item()
+
     return total_loss / len(loader)
 
 
@@ -62,7 +82,7 @@ def main():
     parser.add_argument("--augment_minority_only", action="store_true") # data 불균형 해결용 옵션
     parser.add_argument("--wandb_project", type=str, default="face-age") # wandb project name
 
-    # --- 모델/옵션 ---
+    # --- Model(type, feat_dim, width, activation, droput, patience) ---
     parser.add_argument("--model_type", type=str, default="vgg", choices=["vgg", "resnet"])
     parser.add_argument("--feat_dim", type=int, default=128)   # ✅ 추가
     parser.add_argument("--width", type=int, default=64)       # ✅ 추가
@@ -70,11 +90,11 @@ def main():
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--patience", type=int, default=8)
 
-    # --- 옵티마이저 ---
+    # --- Optimizer ---
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
     parser.add_argument("--weight_decay", type=float, default=0.0)
 
-    # Loss
+    # --- Loss ---
     parser.add_argument("--label_type", type=str, default="hard", choices=["hard", "soft"], help="라벨 생성 방식 (hard=one-hot, soft=gaussian soft label)")
     parser.add_argument("--loss_fn", type=str, default="ce", choices=["ce", "mse", "kld"],help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)")
     parser.add_argument("--sigma", type=float, default=1.5, help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.")
@@ -144,8 +164,8 @@ def main():
     best_val = float("inf")  # 지금까지 최소 val_loss
     bad_epochs = 0           # 개선 없는 epoch 수
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device)
-        val_loss = validate(model, head, val_loader, criterion, device)
+        train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn)
+        val_loss = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn)
 
         current_lr = optimizer.param_groups[0]["lr"]
 
