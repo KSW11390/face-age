@@ -56,6 +56,8 @@ def main():
     parser.add_argument("--width", type=int, default=64)       # ✅ 추가
     parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--patience", type=int, default=8)
+
     # --- 옵티마이저 ---
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
     parser.add_argument("--weight_decay", type=float, default=0.0)
@@ -78,6 +80,10 @@ def main():
     # ✅ W&B run name (depth 제거, feat_dim/width 사용)
     run_name = f"{args.model_type.upper()}_W{args.width}_F{args.feat_dim}_{args.activation}"
     wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
+
+    wandb.define_metric("epoch")
+    wandb.define_metric("loss/*", step_metric="epoch")
+
     # --- Data ---
     train_loader, val_loader = build_dataloaders(
         root=args.data_root,
@@ -108,6 +114,8 @@ def main():
         optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9,
                                     weight_decay=args.weight_decay, nesterov=True)
     # --- Training ---
+    best_val = float("inf")  # 지금까지 최소 val_loss
+    bad_epochs = 0           # 개선 없는 epoch 수
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, head, train_loader, criterion, optimizer, device)
         val_loss = validate(model, head, val_loader, criterion, device)
@@ -118,6 +126,27 @@ def main():
         print(f"[{epoch}/{args.epochs}] "
               f"train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, lr={current_lr:.2e}")
 
+        # === Early Stopping ===
+        if val_loss < best_val - 1e-6:  # 개선 발생 시
+            best_val = val_loss
+            bad_epochs = 0
+
+            # best checkpoint 따로 저장
+            best_ckpt = os.path.join(args.save_dir, f"best_{args.model_type}_W{args.width}_F{args.feat_dim}.pt")
+            torch.save({
+                "model": model.state_dict(),
+                "head": head.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch
+            }, best_ckpt)
+            print(f"🌟 New best model saved (val_loss={val_loss:.4f}) → {best_ckpt}")
+            wandb.log({"checkpoint/best_epoch": epoch, "checkpoint/best_val_loss": val_loss})
+        else:
+            bad_epochs += 1
+            if bad_epochs >= args.patience:
+                print(f"⏹ Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)")
+                break    
+        
         # === W&B 로깅 ===
         wandb.log({
             "epoch": epoch,
