@@ -111,7 +111,7 @@ def main():
     # --- Create Artifacts ---
 
     artifact = wandb.Artifact(
-        name="Simple-CNN", type="model", description="Trained model weights"
+        name="face-age", type="model", description="Trained model weights"
     )
     artifact.add_file(ckpt_path)
     run.log_artifact(artifact)
