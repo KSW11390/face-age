@@ -95,7 +95,6 @@ def main():
             }, ckpt_path)
             print(f"💾 Saved checkpoint → {ckpt_path}")
 
-    wandb.finish()
     print("✅ Training complete!")
 
     # --- Create Artifacts ---
