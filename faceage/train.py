@@ -99,7 +99,7 @@ def main():
 
     # --- 체크포인트 저장 ---
 
-    ckpt_path = os.path.join(args.save_dir, f"best-model.pt")
+    ckpt_path = os.path.join(args.save_dir, "model.pt")
     torch.save(
            {
                 "model": model.state_dict(),
@@ -116,7 +116,7 @@ def main():
     model_artifact = wandb.Artifact(
         name="face-age", type="model", description="Trained model weights"
     )
-    model_artifact.add_file(ckpt_path)
+    model_artifact.add_file("/content/drive/MyDrive/face-age/checkpoints/model.pt")
     run.log_artifact(model_artifact)
 
     # --- Create Dataset Artifacts ---
