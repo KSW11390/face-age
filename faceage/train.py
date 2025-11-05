@@ -108,13 +108,25 @@ def main():
 
     print("✅ Training complete!")
 
-    # --- Create Artifacts ---
+    # --- Create Model Artifacts ---
 
-    artifact = wandb.Artifact(
-        name="face-age", type="model", description="Trained model weights"
+    model_artifact = wandb.Artifact(
+        name="face-age", 
+        type="model", 
+        description="Trained model weights"
     )
-    artifact.add_file(ckpt_path)
-    run.log_artifact(artifact)
+    model_artifact.add_file(ckpt_path)
+    run.log_artifact(model_artifact)
+
+    # --- Create Dataset Artifacts ---
+
+    data_artifact = wandb.Artifact(
+        name="raw_image_data", 
+        type="dataset", 
+        description="Initial dataset from source, before filtering"
+    )
+    data_artifact.add_dir("/Users/iseunghun/Desktop/ML/raw_image_data-v0")
+    run.log_artifact(data_artifact)
 
     run.finish
 
