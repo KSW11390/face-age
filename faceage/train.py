@@ -3,7 +3,6 @@ import argparse
 import torch
 import wandb
 from tqdm import tqdm
-from datetime import datetime
 from faceage.data.datasets import build_dataloaders
 from faceage.models.cnn import SimpleCNN
 from faceage.models.head import SoftHead
@@ -56,87 +55,113 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🚀 Using device: {device}")
 
+
+    name_parts = [
+        f"LR{args.lr}",
+        f"BS{args.batch_size}"
+    ]
+    if args.augment_minority_only:
+        name_parts.append("AugOnly")
+
+    run_name = "_".join(name_parts)
+
     # --- W&B init ---
     run = wandb.init(
-        project=args.wandb_project, config=vars(args), job_type="train"
-    )
-
-    # --- load latest model artifact ---
-    model_artifact_path = "HongikML/face-age/face-age:latest" 
-    model_artifact = run.use_artifact(model_artifact_path, type="model")
-    model_artifact_dir = model_artifact.download()
-    model_path = f"{model_artifact_dir}/model.pt"    
-
-    # --- load latest dataset ---
-    datatset_artifact_path = "HongikML/face-age/raw_image_data:latest"
-    dataset_artifact = run.use_artifact(datatset_artifact_path, type="dataset")
-    dataset_dir = dataset_artifact.download()
-
-
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    print(f"🔹 Run name: {run_name}")
-
-    # --- Data ---
-    train_loader, val_loader = build_dataloaders(
-        root=args.data_root,
-        batch_size=args.batch_size,
-        augment_minority_only=args.augment_minority_only,
-    )
+        project="face-age",
+        name=run_name,
+        config=vars(args),
+        job_type="train"
+    ) 
 
     # --- Model ---
     model = SimpleCNN().to(device)
-    state_dict = torch.load(model_path)
-    model.load_state_dict(state_dict['model'])
     head = SoftHead(128, num_bins=86).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         list(model.parameters()) + list(head.parameters()), lr=args.lr
     )
 
+    # --- Model 아티팩트 사용 시도 ---
+    model_path = "HongikML/face-age/face-age-checkpoints:latest" 
+    start_epoch = 1
+    try:
+        model_dir = run.use_artifact(model_path, type="model").download()
+        model_path = f"{model_dir}/best_model.pt"
+
+        checkpoint = torch.load(model_path, map_location=device)
+        model.load_state_dict(checkpoint['model'])
+        head.load_state_dict(checkpoint['head'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        start_epoch = checkpoint['epoch'] + 1
+
+        print(f"✅ Checkpoint loaded. Resuming from epoch {start_epoch}")
+    except Exception as e:
+        print("❌ Artifact가 존재하지 않음. 새로운 모델 훈련 시작.")
+        start_epoch = 1
+
+    # --- Dataset 아티팩트 사용 시도 ---
+    datatset_path = "HongikML/face-age/image_data:latest"
+    dataset_artifact_exists = True
+    try:
+        dataset_dir = run.use_artifact(datatset_path, type="dataset").download()
+        print(f"✅ Artifact 다운로드 성공. 데이터셋 경로: {dataset_dir}")
+        final_data_path = dataset_dir
+    except Exception as e:
+         print("❌ Artifact가 존재하지 않음. 로컬 데이터 사용.")
+         final_data_path = args.data_root
+         dataset_artifact_exists = False
+
+    # --- Data ---
+    train_loader, val_loader = build_dataloaders(
+        root=final_data_path,
+        batch_size=args.batch_size,
+        augment_minority_only=args.augment_minority_only,
+    )
+
     # --- Training ---
-    for epoch in range(1, args.epochs + 1):
+    best_val_loss = float('inf') # best_val_loss 추적
+    
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss = train_one_epoch(
             model, head, train_loader, criterion, optimizer, device
         )
         val_loss = validate(model, head, val_loader, criterion, device)
 
-        print(
-            f"[{epoch}/{args.epochs}] train_loss={train_loss:.4f}, val_loss={val_loss:.4f}"
-        )
         wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
-    print("✅ Training complete!")
+        # val_loss가 개선되었을 때만 저장
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            print(f"🎉 New best model found! Epoch {epoch}, Val Loss: {val_loss:.4f}")
 
-    # --- 체크포인트 저장 ---
-    ckpt_path = os.path.join(args.save_dir, "model.pt")
-    torch.save(
-           {
+            ckpt_path = os.path.join(args.save_dir, "best_model.pt") # 파일 이름 고정
+            torch.save({
                 "model": model.state_dict(),
                 "head": head.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch,
-            },
-           ckpt_path
-    )
-    print(f"💾 Saved checkpoint → {ckpt_path}")
+            }, ckpt_path)
 
-    # --- Create Model Artifacts ---
-    model_artifact = wandb.Artifact(
-        name="face-age", type="model", description="Trained model weights"
-    )
-    model_artifact.add_file("/content/drive/MyDrive/MLProject/checkpoints/model.pt")
-    run.log_artifact(model_artifact)
+            model_artifact = wandb.Artifact(name="face-age-checkpoints", type="model")
+            model_artifact.add_file(ckpt_path)
+
+            # 'latest'와 'best' 별칭을 모두 추가
+            run.log_artifact(model_artifact, aliases=[f"epoch_{epoch}", "latest", "best"])
+
+    print("✅ Training complete!")
 
     # --- Create Dataset Artifacts ---
-    data_artifact = wandb.Artifact(
-        name="raw_image_data",
-        type="dataset",
-        description="Initial dataset from source, before filtering",
-    )
-    data_artifact.add_dir("/content/UTKFace")
-    run.log_artifact(data_artifact)
+    if not dataset_artifact_exists:
+        print("Uploading new dataset artifact...")
+        data_artifact = wandb.Artifact(
+            name="image_data",
+            type="dataset",
+        )
+        # dataset_dir가 아닌 로컬 경로(args.data_root)를 사용해야 합니다.
+        data_artifact.add_dir(args.data_root) 
+        run.log_artifact(data_artifact)
 
-    run.finish
+    run.finish()
 
 
 if __name__ == "__main__":

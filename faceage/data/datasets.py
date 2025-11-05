@@ -99,7 +99,7 @@ class UTKFaceDataset(Dataset):
 
         img_np = _imread_rgb(path)  # HWC RGB ndarray
         img_pil = to_pil(img_np)  # PIL.Image
-
+        
         # 증강 규칙 (train 시 비백인만 증강 옵션)
         if self.cfg.split == "train":
             if self.cfg.augment_minority_only and race != 0:
@@ -151,7 +151,7 @@ def build_dataloaders(
     assert len(all_paths) > 100, f"[UTKFace] No images under: {root}"
 
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)
-
+    
     train_ds = UTKFaceDataset(
         UTKFaceCfg(
             root=root,
