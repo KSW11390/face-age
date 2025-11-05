@@ -201,8 +201,8 @@ def main():
                 sum(p.numel() for p in head.parameters() if p.requires_grad)
     
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn)
-        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn)
+        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86)
+        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86)
 
         current_lr = optimizer.param_groups[0]["lr"]
 
