@@ -77,6 +77,7 @@ def main():
     # Loss
     parser.add_argument("--label_type", type=str, default="hard", choices=["hard", "soft"], help="라벨 생성 방식 (hard=one-hot, soft=gaussian soft label)")
     parser.add_argument("--loss_fn", type=str, default="ce", choices=["ce", "mse", "kld"],help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)")
+    parser.add_argument("--sigma", type=float, default=1.5, help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.")
 
     args = parser.parse_args()
 
@@ -106,6 +107,7 @@ def main():
         batch_size=args.batch_size,
         augment_minority_only=args.augment_minority_only,
         label_type=args.label_type,
+        sigma=args.sigma,
     )
 
     # --- Model ---
