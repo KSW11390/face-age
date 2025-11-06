@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--sigma", type=float, default=1.5, help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.")
 
     # --- race_one_hot_vector ---
-    parser.add.argument("use_race_onehot", action="store_true")
+    parser.add_argument("use_race_onehot", action="store_true")
     args = parser.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
