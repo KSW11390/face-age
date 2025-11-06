@@ -151,6 +151,25 @@ def main():
     wandb.define_metric("epoch")
     wandb.define_metric("loss/*", step_metric="epoch")
 
+    from faceage.data.datasets import _parse_utkface_filename
+
+    train_ds = train_loader.dataset
+    cnt_aug, cnt_no = 0, 0
+    N = min(1000, len(train_ds))  # 앞의 1000장만 확인
+    for i in range(N):
+        try:
+            _, _, race = _parse_utkface_filename(train_ds.paths[i])
+        except:
+            continue
+        use_aug = (train_ds.cfg.split == "train") and (not train_ds.cfg.augment_minority_only or race != 0)
+        cnt_aug += int(use_aug)
+        cnt_no += int(not use_aug)
+
+    print(f"[DEBUG] policy(first {N}) -> AUG:{cnt_aug}  NO-AUG:{cnt_no}  (augment_minority_only={train_ds.cfg.augment_minority_only})")
+
+    # 기존에 있던 디버그 출력
+    print(f"[DEBUG] train dataset size = {len(train_loader.dataset)}")
+    print(f"[DEBUG] val dataset size   = {len(val_loader.dataset)}")
     # --- Data ---
     train_loader, val_loader = build_dataloaders(
         root=args.data_root,
@@ -159,8 +178,6 @@ def main():
         label_type=args.label_type,
         sigma=args.sigma,
     )
-    print(f"[DEBUG] train dataset size = {len(train_loader.dataset)}")
-    print(f"[DEBUG] val dataset size   = {len(val_loader.dataset)}")    
 
     # --- Model ---
     model = build_model(
