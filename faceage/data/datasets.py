@@ -92,10 +92,10 @@ class UTKFaceDataset(Dataset):
 
         # 증강 규칙 (train 시 비백인만 증강 옵션)
         if self.cfg.split == "train":
-            if self.cfg.augment_minority_only and race != 0:
-                img = self.tf_train(img_pil)
+            if self.cfg.augment_minority_only:
+                img = self.tf_train(img_pil) if race != 0 else self.tf_eval(img_pil)
             else:
-                img = self.tf_eval(img_pil)
+                img = self.tf_train(img_pil)     # 기본은 훈련 전체 증강
         else:
             img = self.tf_eval(img_pil)
 

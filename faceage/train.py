@@ -159,6 +159,8 @@ def main():
         label_type=args.label_type,
         sigma=args.sigma,
     )
+    print(f"[DEBUG] train dataset size = {len(train_loader.dataset)}")
+    print(f"[DEBUG] val dataset size   = {len(val_loader.dataset)}")    
 
     # --- Model ---
     model = build_model(
