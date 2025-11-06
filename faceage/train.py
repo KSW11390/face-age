@@ -13,14 +13,15 @@ from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
-def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int):
+def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.train()
     total_loss, total_mae = 0.0, 0.0
     count = 0
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
-        imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
+        imgs, labels, ages = imgs.to(device), labels.to(device), ages.to(device)
+        races = races.to(device) if use_race else None   # race 사용 여부 결정
 
         optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
 
@@ -56,14 +57,15 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
 
 @torch.no_grad()
-def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str, num_bins: int):
+def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.eval()
     total_loss, total_mae = 0.0, 0.0
     count = 0
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
-        imgs, labels, races, ages = imgs.to(device), labels.to(device), races.to(device), ages.to(device)
+        imgs, labels, ages = imgs.to(device), labels.to(device), ages.to(device)
+        races = races.to(device) if use_race else None   # race 사용 여부 결정
 
         feats  = model(imgs)
         logits = head(feats, races)
@@ -121,6 +123,8 @@ def main():
     parser.add_argument("--loss_fn", type=str, default="ce", choices=["ce", "mse", "kld"],help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)")
     parser.add_argument("--sigma", type=float, default=1.5, help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.")
 
+    # --- race_one_hot_vector ---
+    parser.add.argument("use_race_onehot", action="store_true")
     args = parser.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -163,6 +167,7 @@ def main():
             augment_minority_only=args.augment_minority_only,
             val_ratio=0.2,
             seed=42,
+            max_age=85,
         )
         print(f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}")
     except Exception as e:
@@ -184,7 +189,7 @@ def main():
         dropout=args.dropout
     ).to(device)
 
-    head = SoftHead(args.feat_dim, num_bins=86).to(device)
+    head = SoftHead(args.feat_dim, num_bins=86, use_race=args.use_race_onehot,).to(device)
 
     # Loss
     if args.loss_fn == "ce":
@@ -215,8 +220,8 @@ def main():
                 sum(p.numel() for p in head.parameters() if p.requires_grad)
     
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86)
-        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86)
+        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
+        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
 
         current_lr = optimizer.param_groups[0]["lr"]
 

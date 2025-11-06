@@ -52,6 +52,24 @@ def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[s
         (val if i in val_idx else train).append(p)
     return train, val
 
+# max_age(85)세 초과 샘플 제거
+def _filter_by_age(paths: List[str], max_age: int = 85) -> List[str]:
+    kept = []
+    dropped = 0
+    for p in paths:
+        try:
+            age, _, _ = _parse_utkface_filename(p)
+            if age <= max_age:
+                kept.append(p)
+            else:
+                dropped += 1
+        except Exception:
+            continue
+
+    print(f"[UTKFace] Removed {dropped} images with age > {max_age}")
+    assert len(kept) > 100, f"[UTKFace] Too few samples after filtering (<= {max_age}yrs)"
+    return kept
+
 @dataclass
 class UTKFaceCfg:
     root: str
@@ -134,11 +152,15 @@ def build_dataloaders(
     val_ratio: float = 0.2,
     seed: int = 42,
     pin_memory: Optional[bool] = None,
+    max_age: int = 85,
 ):
     all_paths = sorted(glob.glob(os.path.join(root, "*.jpg")))
     if len(all_paths) == 0:
         all_paths = sorted(glob.glob(os.path.join(root, "*.png")))
     assert len(all_paths) > 100, f"[UTKFace] No images under: {root}"
+
+    # 85세 초과 제거
+    all_paths = _filter_by_age(all_paths, max_age=max_age)
 
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)
 
