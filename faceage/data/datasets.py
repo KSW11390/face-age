@@ -131,7 +131,7 @@ def build_dataloaders(
     sigma: float = 1.5,
     label_type: str = "soft",
     augment_minority_only: bool = False,
-    val_ratio: float = 0.1,
+    val_ratio: float = 0.2,
     seed: int = 42,
     pin_memory: Optional[bool] = None,
 ):
