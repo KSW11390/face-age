@@ -2,6 +2,8 @@ import os
 import argparse
 import torch
 import wandb
+import hydra
+from omegaconf import DictConfig
 from tqdm import tqdm
 from faceage.data.datasets import build_dataloaders
 from faceage.models.cnn import SimpleCNN
@@ -35,8 +37,8 @@ def validate(model, head, loader, criterion, device):
         total_loss += loss.item()
     return total_loss / len(loader)
 
-
-def main():
+@hydra.main(version_base=None, config_path="config", config_name="train/default")
+def main(cfg: DictConfig):
     parser = argparse.ArgumentParser(description="Face-Age Training")
     parser.add_argument("--data_root", type=str, required=True)
     parser.add_argument("--epochs", type=int, default=30)
@@ -74,8 +76,13 @@ def main():
     ) 
 
     # --- Model ---
-    model = SimpleCNN().to(device)
-    head = SoftHead(128, num_bins=86).to(device)
+    model = SimpleCNN(in_channels=cfg.model.in_channels).to(device)
+    head = SoftHead(
+        in_dim=128, 
+        num_bins=86, 
+        num_bins=cfg.data.num_bins,
+        use_race=cfg.data.use_race_onehot,
+        dropout=cfg.model.dropout,).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         list(model.parameters()) + list(head.parameters()), lr=args.lr
@@ -149,6 +156,9 @@ def main():
             run.log_artifact(model_artifact, aliases=[f"epoch_{epoch}", "latest", "best"])
 
     print("✅ Training complete!")
+
+    model.eval()
+
 
     # --- Create Dataset Artifacts ---
     if not dataset_artifact_exists:
