@@ -8,7 +8,6 @@ from tqdm import tqdm
 from datetime import datetime
 
 from faceage.data.datasets import build_dataloaders
-from faceage.models.cnn import SimpleCNN
 from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
