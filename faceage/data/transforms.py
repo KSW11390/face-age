@@ -1,15 +1,17 @@
 from PIL import Image
 import torchvision.transforms as T
 
+# build_transforms
+# train/val 여부에 따라 (augmentation) + preprocessing 이후 torchvision.transforms.Compose를 Return
+# Parameters
+#   - train
+#       - True: augmentation + preprocessing
+#       - False: preprocessing
+#   - size: 최종으로 맞춰줄 해상도
+# 
 def build_transforms(train: bool, size: int = 200):
-    """
-    입력 이미지는 이미 200x200 고정.
-    - train: 크기 보존형 강한 증강 (Pad→RandomCrop, Affine, Blur, Jitter, Erasing)
-    - eval : Resize→CenterCrop→Normalize
-    픽셀 정규화는 (-1, 1) 범위 기준 (0.5 mean / 0.5 std)
-    """
     normalize = T.Normalize(mean=(0.5, 0.5, 0.5),
-                            std=(0.5, 0.5, 0.5))  # 0~1 → -1~1
+                            std=(0.5, 0.5, 0.5))
 
     if train:
         tf = T.Compose([
@@ -37,6 +39,7 @@ def build_transforms(train: bool, size: int = 200):
         ])
     return tf
 
+# to_pil
+# numpy 배열 (HWC,RGB) -> PIL.image 객체로 변환
 def to_pil(img_np):
-    """HWC RGB ndarray → PIL.Image"""
     return Image.fromarray(img_np)
