@@ -1,16 +1,7 @@
-# Core (PyTorch/torchvision은 Colab에 기본 제공)
+# Core
 tqdm
-numpy>=1.23   # (<2.0 유지해도 되고, torchvision만 쓰면 2.x도 대개 OK)
+numpy>=1.23
 Pillow>=10.0
 
-# Config (쓰면 유지, 안 쓰면 삭제 가능)
-omegaconf>=2.3.0
-hydra-core>=1.3.2
-
-# Logging / Tracking
+# Logging
 wandb
-
-# Dev tools (optional)
-pytest
-black
-ruff

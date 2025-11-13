@@ -13,6 +13,19 @@ from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
 
+# 나이대별 Loss용 구간 정의
+AGE_GROUPS = [
+    ("00-09", 0, 9),
+    ("10-19", 10, 19),
+    ("20-29", 20, 29),
+    ("30-39", 30, 39),
+    ("40-49", 40, 49),
+    ("50-59", 50, 59),
+    ("60-69", 60, 69),
+    ("70-79", 70, 79),
+    ("80-85", 80, 85),
+]
+
 def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.train()
     total_loss, total_mae = 0.0, 0.0
@@ -63,6 +76,10 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
     count = 0
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
+    # 나이대별 MAE 누적용
+    age_group_abs_err = {name: 0.0 for name, _, _ in AGE_GROUPS}
+    age_group_count   = {name: 0   for name, _, _ in AGE_GROUPS}
+
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
         imgs, labels, ages = imgs.to(device), labels.to(device), ages.to(device)
         races = races.to(device) if use_race else None   # race 사용 여부 결정
@@ -93,7 +110,20 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
         total_mae += mae.item()
         count += 1
 
-    return total_loss / count, total_mae / count
+        # 나이대별 MAE
+        per_sample_err = (pred_age - ages.float()).abs()
+        for name, lo, hi in AGE_GROUPS:
+            mask = (ages >= lo) & (ages <= hi)
+            if mask.any():
+                age_group_abs_err[name] += per_sample_err[mask].sum().item()
+                age_group_count[name]   += mask.sum().item()
+
+        mae_by_age_group = {}
+        for name in age_group_abs_err:
+            if age_group_count[name] > 0:
+                mae_by_age_group[name] = age_group_abs_err[name] / age_group_count[name]
+
+    return total_loss / count, total_mae / count, count, mae_by_age_group
 
 
 # ----- Main Part -----
@@ -152,15 +182,15 @@ def main():
         f"drop{args.dropout}_"
         f"wd{args.weight_decay}"
     )
-    wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
+    wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
     wandb.define_metric("epoch")
     wandb.define_metric("loss/*", step_metric="epoch")
 
     # --- Data ---
     try:
         train_loader, val_loader = build_dataloaders(
-            root=args.data_root,                # "/content/UTKFace/UTKFace"
+            root=args.data_root,
             batch_size=args.batch_size,
             img_size=200,
             num_bins=86,
@@ -214,7 +244,6 @@ def main():
     # --- Training ---
     best_val = float("inf")  # 지금까지 최소 val_loss
     bad_epochs = 0           # 개선 없는 epoch 수
-    
 
     # 총 Parameter 수
     params_total = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in head.parameters())
@@ -223,7 +252,7 @@ def main():
     
     for epoch in range(1, args.epochs + 1):
         train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
-        val_loss, val_mae = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
+        val_loss, val_mae, val_mae_by_age = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
 
         current_lr = optimizer.param_groups[0]["lr"]
 
@@ -255,6 +284,8 @@ def main():
                 print(f"⏹ Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)")
                 break    
         
+        mae_by_age_logs = {f"mae_by_age/{k}": v for k, v in val_mae_by_age.items()}
+
         # === W&B 로깅 ===
         wandb.log({
             "epoch": epoch,
@@ -262,10 +293,10 @@ def main():
             "loss/val": val_loss,
             "mae/train": train_mae,
             "mae/val": val_mae,
-            "train/val_loss_gap": abs(train_loss - val_loss),
             "lr": current_lr,
             "params/total": params_total,
             "params/trainable": params_train,
+            **mae_by_age_logs,
         })
 
         # epoch 5번마다 Checkpoint 저장
