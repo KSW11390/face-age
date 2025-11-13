@@ -96,7 +96,9 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
     return total_loss / count, total_mae / count
 
 
+# ----- Main Part -----
 def main():
+    # argparse 정의
     parser = argparse.ArgumentParser(description="Face-Age Training")
     parser.add_argument("--data_root", type=str, required=True) # data 경로
     parser.add_argument("--epochs", type=int, default=30)
@@ -108,8 +110,8 @@ def main():
 
     # --- Model(type, feat_dim, width, activation, droput, patience) ---
     parser.add_argument("--model_type", type=str, default="vgg", choices=["vgg", "resnet"])
-    parser.add_argument("--feat_dim", type=int, default=128)   # ✅ 추가
-    parser.add_argument("--width", type=int, default=64)       # ✅ 추가
+    parser.add_argument("--feat_dim", type=int, default=128)
+    parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--patience", type=int, default=8)
