@@ -123,7 +123,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
             if age_group_count[name] > 0:
                 mae_by_age_group[name] = age_group_abs_err[name] / age_group_count[name]
 
-    return total_loss / count, total_mae / count, count, mae_by_age_group
+    return total_loss / count, total_mae / count, mae_by_age_group
 
 
 # ----- Main Part -----
