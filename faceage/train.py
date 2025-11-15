@@ -199,6 +199,9 @@ def main():
             val_ratio=0.2,
             seed=42,
             max_age=85,
+            aug_strength=args.aug_strength,
+            use_age_group_aug=args.use_age_group_aug,
+            aug_dup=args.aug_dup,
         )
         print(f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}")
     except Exception as e:
