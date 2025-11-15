@@ -50,7 +50,7 @@ def build_transforms(train: bool, size: int = 200, strength: str = "medium"):
             ),
             T.RandomPerspective(distortion_scale=0.15, p=0.3),
         ]
-    elif strength == "strong":
+    elif strength == "strong": # randomgrayscale, gausianblurr, erase
         aug = [
             T.RandomAffine(
                 degrees=15,

@@ -156,8 +156,19 @@ def main():
 
     # --- race_one_hot_vector ---
     parser.add_argument("--use_race_onehot", action="store_true", default=False)
-    args = parser.parse_args()
 
+    # Data Augmentation
+        # 🔥 전체 증강 강도
+    parser.add_argument("--aug_strength", type=str, default="medium", choices=["none", "weak", "medium", "strong"], help="훈련 데이터 공통 증강 강도")
+
+    # 🔥 나이대별 증강 사용 여부 (켜면 age group별로 강도 다르게)
+    parser.add_argument("--use_age_group_aug", action="store_true",help="나이대별로 서로 다른 증강을 사용할지 여부")
+
+    # 🔥 한 이미지당 몇 배로 늘릴지 (데이터 oversampling용)
+    parser.add_argument("--aug_dup", type=int, default=1, help="훈련 데이터 한 이미지당 augmentation 샘플 개수 배수")
+
+    args = parser.parse_args()
+    
     os.makedirs(args.save_dir, exist_ok=True)
     set_seed(42)
 
