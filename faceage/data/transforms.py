@@ -1,10 +1,10 @@
 from PIL import Image
 import torchvision.transforms as T
 
-def build_transforms(train: bool, size: int = 200, strength: str = "medium"):
+def build_transforms(train: bool, size: int = 200, strength: str = "medium", use_random_erase: bool = False, erase_prob: float = 0.2):
 
-    normalize = T.Normalize(mean=(0.5, 0.5, 0.5),
-                            std=(0.5, 0.5, 0.5))
+    normalize = T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    
     # train set이 아닐 경우 바로 return
     if not train:
         return T.Compose([
@@ -47,10 +47,14 @@ def build_transforms(train: bool, size: int = 200, strength: str = "medium"):
     tail = [
         T.ToTensor(),
         normalize,
-        T.RandomErasing(p=0.2 if strength != "none" else 0.0,
-                        scale=(0.02, 0.15),
-                        ratio=(0.3, 3.3)),
     ]
+    
+    if use_random_erase and strength != "none":
+        tail.append(T.RandomErasing(
+            p=erase_prob,
+            scale=(0.02, 0.15),
+            ratio=(0.3, 3.3)
+        ))
 
     return T.Compose(base + aug + tail)
 
