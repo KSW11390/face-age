@@ -94,21 +94,19 @@ class UTKFaceCfg:
 
 class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
-
         self.cfg = cfg
-        self.age_group_transforms = None
 
+        # --- 파일 리스트 준비 ---
         if file_list is None:
             all_files = sorted(glob.glob(os.path.join(cfg.root, "*.jpg")))
             if len(all_files) == 0:
                 all_files = sorted(glob.glob(os.path.join(cfg.root, "*.png")))
             assert len(all_files) > 100, f"[UTKFace] No images under: {cfg.root}"
             self.paths = all_files
-
         else:
             self.paths = file_list
 
-        # ===== transforms 기본 설정 =====
+        # --- 기본 transform 설정 ---
         self.tf_train = build_transforms(
             train=True,
             size=cfg.img_size,
@@ -116,15 +114,14 @@ class UTKFaceDataset(Dataset):
             use_random_erase=cfg.use_random_erase,
             erase_prob=cfg.erase_prob,
         )
-
         self.tf_eval = build_transforms(
             train=False,
-            size=cfg.img_size
+            size=cfg.img_size,
         )
 
-        # 🔥 나이대별 증강 옵션이 켜져 있으면, 그룹별 transform dict 생성
-        #    (0–19: strong, 20–49: medium, 50+: weak 예시)
-        if cfg.use_age_group_aug:
+        # --- 나이대별 transform (강도 다르게) ---
+        self.age_group_transforms = None
+        if cfg.use_age_group_aug and cfg.split == "train":
             self.age_group_transforms = {}
             for name, lo, hi in AGE_GROUPS:
                 if hi <= 19:          # 00–09, 10–19
@@ -133,21 +130,19 @@ class UTKFaceDataset(Dataset):
                     strength = "weak"
                 elif hi <= 59:        # 40–49, 50–59
                     strength = "medium"
-                else:                 # 60–69, 70–79, 80-89
+                else:                 # 60–69, 70–79, 80–89
                     strength = "strong"
 
                 self.age_group_transforms[name] = build_transforms(
                     train=True,
                     size=cfg.img_size,
                     strength=strength,
+                    use_random_erase=cfg.use_random_erase,
+                    erase_prob=cfg.erase_prob,
                 )
-        else:
-            self.age_group_transforms = None
 
-    # ===== 나이대별 aug_dup 설정 =====
-        # 기본값: 모두 cfg.aug_dup
-        default_dup = cfg.aug_dup
-
+        # --- 나이대별 dup 설정 (몇 배씩 뽑을지) ---
+        # 기본 맵: tail(고령)일수록 많이 뽑도록 설계
         self.age_group_dup = {
             "00-09": 1,
             "10-19": 1,
@@ -160,32 +155,55 @@ class UTKFaceDataset(Dataset):
             "80-89": 4,
         }
 
-        if not cfg.use_age_group_aug_dup:
-            # 전부 동일 배수 사용
-            self.age_group_dup = {g[0]: default_dup for g in AGE_GROUPS}
+        # use_age_group_aug_dup=False면, 전 나이대 공통 dup만 사용
+        # (cfg.aug_dup가 1이면 사실상 dup 없음)
+        self.global_dup = max(1, int(cfg.aug_dup))
 
-        self.total_dup = sum(self.age_group_dup.values())
+        # --- index_map 생성: 여기서 진짜 "나이대별로 많이 뽑기" 구현 ---
+        self.index_map = []
+
+        if self.cfg.split != "train":
+            # val/test는 항상 1배, 순수한 평가용
+            self.index_map = list(range(len(self.paths)))
+        else:
+            if cfg.use_age_group_aug_dup:
+                # 🔥 나이대별 dup 적용 모드
+                for i, path in enumerate(self.paths):
+                    age, _, _ = _parse_utkface_filename(path)
+                    group = age_to_group_name(age)
+                    dup = self.age_group_dup.get(group, 1)  # 매핑 없으면 1배
+
+                    # 필요하면 global_dup 도 곱할 수 있음 (지금은 age map만 사용)
+                    # dup = dup * self.global_dup
+
+                    for _ in range(dup):
+                        self.index_map.append(i)
+            else:
+                # 🔥 전 나이대 공통 dup만 적용 (기존 aug_dup=K 의미 그대로)
+                for i in range(len(self.paths)):
+                    for _ in range(self.global_dup):
+                        self.index_map.append(i)
+
+        # sanity check
+        assert len(self.index_map) > 0, "[UTKFaceDataset] index_map is empty!"
 
     def __len__(self):
-        # aug_dup 없음 → paths 그대로
-        # aug_dup 있음 → 누적 방식보다, per-sample 적용이 자연스럽기 때문에
-        return len(self.paths) * self.total_dup
+        # 이제는 index_map 길이가 곧 dataset 길이
+        return len(self.index_map)
 
     def __getitem__(self, idx):
-        # 어떤 real index?
-        real_idx = idx // self.total_dup
+        # index_map을 통해 실제 원본 인덱스로 매핑
+        real_idx = self.index_map[idx]
         path = self.paths[real_idx]
 
         age, gender, race = _parse_utkface_filename(path)
         img_np = _imread_rgb(path)
         img_pil = to_pil(img_np)
 
-        group = age_to_group_name(age)
-
-        # transform 선택
+        # 어떤 transform을 쓸지 결정
         if self.cfg.split == "train":
             if self.age_group_transforms is not None:
-                # 혹시 group 키가 없으면 fallback으로 tf_train 사용
+                group = age_to_group_name(age)
                 tf = self.age_group_transforms.get(group, self.tf_train)
             else:
                 tf = self.tf_train
@@ -194,16 +212,15 @@ class UTKFaceDataset(Dataset):
 
         img = tf(img_pil)
 
-        # label
+        # label 생성
         if self.cfg.label_type == "soft":
             label = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)
         else:
-            label = torch.zeros(self.cfg.num_bins)
-            label[min(age, self.cfg.num_bins - 1)] = 1.0
+            label = torch.zeros(self.cfg.num_bins, dtype=torch.float32)
+            label[min(int(age), self.cfg.num_bins - 1)] = 1.0
 
         race_oh = _race_one_hot(race)
-
-        return img.float(), label.float(), race_oh, torch.tensor(age)
+        return img.float(), label.float(), race_oh, torch.tensor(age, dtype=torch.long)
     
 
 # ---------- DataLoader Builder ----------
