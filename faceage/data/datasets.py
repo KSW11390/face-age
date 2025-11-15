@@ -1,27 +1,16 @@
 # faceage/data/datasets.py
 import os, glob, hashlib
+import numpy as np
 from dataclasses import dataclass
 from typing import Tuple, List, Optional
-import numpy as np
-from PIL import Image
+
 import torch
 from torch.utils.data import Dataset, DataLoader
-from .transforms import build_transforms, to_pil
 
-# UTKFace: race code
-RACE_NAMES = ["White", "Black", "Asian", "Indian", "Others"]
-NUM_RACES = len(RACE_NAMES)
-AGE_GROUPS = [
-    ("00-09", 0, 9),
-    ("10-19", 10, 19),
-    ("20-29", 20, 29),
-    ("30-39", 30, 39),
-    ("40-49", 40, 49),
-    ("50-59", 50, 59),
-    ("60-69", 60, 69),
-    ("70-79", 70, 79),
-    ("80-85", 80, 85),
-]
+from PIL import Image
+
+from .transforms import build_transforms, to_pil
+from faceage.data.constants import AGE_GROUPS, RACE_NAMES, NUM_RACES
 
 def age_to_group_name(age: int) -> str:
     for name, lo, hi in AGE_GROUPS:
@@ -29,15 +18,13 @@ def age_to_group_name(age: int) -> str:
             return name
     return "others"
 
-
-def _parse_utkface_filename(path: str) -> Tuple[int, int, int]:
+def _parse_utkface_filename(path):
     base = os.path.basename(path)
-    stem = base.split(".")[0]  # "23_0_2_201701161745"
-    parts = stem.split("_")
-    age, gender, race = int(parts[0]), int(parts[1]), int(parts[2])
+    stem = base.split(".")[0]
+    age, gender, race = map(int, stem.split("_")[:3])
     return age, gender, race
 
-def _soft_label(age: int, num_bins: int = 86, sigma: float = 1.5) -> torch.Tensor:
+def _soft_label(age: int, num_bins: int = 91, sigma: float = 1.5) -> torch.Tensor:
     age = max(0, min(num_bins - 1, int(age)))
     xs = np.arange(num_bins, dtype=np.float32)
     g = np.exp(-0.5 * ((xs - age) / sigma) ** 2)
@@ -69,8 +56,8 @@ def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[s
         (val if i in val_idx else train).append(p)
     return train, val
 
-# max_age(85)세 초과 샘플 제거
-def _filter_by_age(paths: List[str], max_age: int = 85) -> List[str]:
+# max_age(90)세 초과 샘플 제거
+def _filter_by_age(paths: List[str], max_age: int = 90) -> List[str]:
     kept = []
     dropped = 0
     for p in paths:
@@ -92,7 +79,7 @@ class UTKFaceCfg:
     root: str
     split: str = "train"           # "train" | "val"
     img_size: int = 200
-    num_bins: int = 86
+    num_bins: int = 91
     sigma: float = 1.5
     label_type: str = "soft" # "soft" | "hard"
     augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
@@ -101,31 +88,35 @@ class UTKFaceCfg:
     use_age_group_aug: bool = False
     aug_dup: int = 1               # 한 이미지당 몇 배로 늘릴지
 
+    use_age_group_aug_dup: bool = False  # 추가
+
 class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
+
         self.cfg = cfg
+
         if file_list is None:
             all_files = sorted(glob.glob(os.path.join(cfg.root, "*.jpg")))
             if len(all_files) == 0:
                 all_files = sorted(glob.glob(os.path.join(cfg.root, "*.png")))
             assert len(all_files) > 100, f"[UTKFace] No images under: {cfg.root}"
             self.paths = all_files
+
         else:
             self.paths = file_list
 
-        # 🔥 배수 옵션 저장 (0 이하로 들어와도 최소 1)
-        self.aug_dup = max(1, int(cfg.aug_dup))
-
-        # 🔥 공통 train/eval transform
-        #    - train 쪽은 cfg.aug_strength 반영
+        # ===== transforms 기본 설정 =====
         self.tf_train = build_transforms(
             train=True,
             size=cfg.img_size,
             strength=cfg.aug_strength,
+            use_random_erase=cfg.use_random_erase,
+            erase_prob=cfg.erase_prob,
         )
-        self.tf_eval  = build_transforms(
+
+        self.tf_eval = build_transforms(
             train=False,
-            size=cfg.img_size,
+            size=cfg.img_size
         )
 
         # 🔥 나이대별 증강 옵션이 켜져 있으면, 그룹별 transform dict 생성
@@ -139,7 +130,7 @@ class UTKFaceDataset(Dataset):
                     strength = "weak"
                 elif hi <= 59:        # 40–49, 50–59
                     strength = "medium"
-                else:                 # 60–69, 70–79, 80–85
+                else:                 # 60–69, 70–79, 80-89
                     strength = "strong"
 
                 self.age_group_transforms[name] = build_transforms(
@@ -150,54 +141,68 @@ class UTKFaceDataset(Dataset):
         else:
             self.age_group_transforms = None
 
-    def __len__(self) -> int:
-        # 🔥 원본 개수 × 배수
-        return len(self.paths) * self.aug_dup
+    # ===== 나이대별 aug_dup 설정 =====
+        # 기본값: 모두 cfg.aug_dup
+        default_dup = cfg.aug_dup
 
-    def __getitem__(self, idx: int):
-        # 🔥 실제 파일 인덱스로 접기
-        real_idx = idx // self.aug_dup
+        self.age_group_dup = {
+            "00-09": 1,
+            "10-19": 1,
+            "20-29": 1,
+            "30-39": 1,
+            "40-49": 2,
+            "50-59": 2,
+            "60-69": 4,
+            "70-79": 4,
+            "80-89": 4,
+        }
+
+        if not cfg.use_age_group_aug_dup:
+            # 전부 동일 배수 사용
+            self.age_group_dup = {g[0]: default_dup for g in AGE_GROUPS}
+
+        self.total_dup = sum(self.age_group_dup.values())
+
+    def __len__(self):
+        # aug_dup 없음 → paths 그대로
+        # aug_dup 있음 → 누적 방식보다, per-sample 적용이 자연스럽기 때문에
+        return len(self.paths) * self.total_dup
+
+    def __getitem__(self, idx):
+        # 어떤 real index?
+        real_idx = idx // self.total_dup
         path = self.paths[real_idx]
 
-        try:
-            age, gender, race = _parse_utkface_filename(path)
-        except Exception:
-            # 에러 나면 다음 샘플로 (dataset 길이 기준으로 순환)
-            return self.__getitem__((idx + 1) % len(self))
+        age, gender, race = _parse_utkface_filename(path)
+        img_np = _imread_rgb(path)
+        img_pil = to_pil(img_np)
 
-        img_np = _imread_rgb(path)   # HWC RGB ndarray
-        img_pil = to_pil(img_np)     # PIL.Image
+        group = age_to_group_name(age)
 
-        # ---------- 어떤 transform을 쓸지 결정 ----------
+        # transform 선택
         if self.cfg.split == "train":
-            # 1) 나이대별 증강이 켜져 있다면 → race 상관없이 age 기반으로 결정
-            if self.age_group_transforms is not None:
-                group_name = age_to_group_name(age)
-                tf = self.age_group_transforms.get(group_name, self.tf_train)
-
-            # 2) 아니면, 기존 augment_minority_only 규칙 사용
+            if self.age_group_tf is not None:
+                tf = self.age_group_tf[group]
             else:
-                if self.cfg.augment_minority_only:
-                    tf = self.tf_train if race != 0 else self.tf_eval
-                else:
-                    tf = self.tf_train
+                tf = self.tf_train
         else:
-            # val/test는 항상 eval transform
             tf = self.tf_eval
 
         img = tf(img_pil)
 
-        # ---------- 라벨 생성 ----------
+        # label
         if self.cfg.label_type == "soft":
             label = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)
         else:
-            label = torch.zeros(self.cfg.num_bins, dtype=torch.float32)
-            label[min(int(age), self.cfg.num_bins - 1)] = 1.0
+            label = torch.zeros(self.cfg.num_bins)
+            label[min(age, self.cfg.num_bins - 1)] = 1.0
 
-        race1h = _race_one_hot(race)
-        return img.float(), label.float(), race1h, torch.tensor(age, dtype=torch.long)
+        race_oh = _race_one_hot(race)
+
+        return img.float(), label.float(), race_oh, torch.tensor(age)
+    
+
 # ---------- DataLoader Builder ----------
-
 def _seed_worker(worker_id):
     import random
     np.random.seed(torch.initial_seed() % 2**32)
@@ -215,14 +220,14 @@ def build_dataloaders(
     batch_size: int = 64,
     num_workers: Optional[int] = None,
     img_size: int = 200,
-    num_bins: int = 86,
+    num_bins: int = 91,
     sigma: float = 1.5,
     label_type: str = "soft",
     augment_minority_only: bool = False,
     val_ratio: float = 0.2,
     seed: int = 42,
     pin_memory: Optional[bool] = None,
-    max_age: int = 85,
+    max_age: int = 90,
 
     # 🔥 새로 추가
     aug_strength: str = "medium",        # "none" | "weak" | "medium" | "strong"
@@ -235,7 +240,7 @@ def build_dataloaders(
         all_paths = sorted(glob.glob(os.path.join(root, "*.png")))
     assert len(all_paths) > 100, f"[UTKFace] No images under: {root}"
 
-    # 85세 초과 제거
+    # 90세 초과 제거
     all_paths = _filter_by_age(all_paths, max_age=max_age)
 
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)

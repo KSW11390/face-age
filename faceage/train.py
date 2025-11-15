@@ -11,19 +11,8 @@ from faceage.data.datasets import build_dataloaders
 from faceage.models.model_factory import build_model
 from faceage.models.head import SoftHead
 from faceage.utils.seed import set_seed
+from faceage.data.constants import AGE_GROUPS
 
-# 나이대별 Loss용 구간 정의
-AGE_GROUPS = [
-    ("00-09", 0, 9),
-    ("10-19", 10, 19),
-    ("20-29", 20, 29),
-    ("30-39", 30, 39),
-    ("40-49", 40, 49),
-    ("50-59", 50, 59),
-    ("60-69", 60, 69),
-    ("70-79", 70, 79),
-    ("80-85", 80, 85),
-]
 
 def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.train()
@@ -75,7 +64,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
     count = 0
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
-    # 나이대별 MAE 누적용
+    # 나이대별 MAE 누적
     age_group_abs_err = {name: 0.0 for name, _, _ in AGE_GROUPS}
     age_group_count   = {name: 0   for name, _, _ in AGE_GROUPS}
 
@@ -109,7 +98,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
         total_mae += mae.item()
         count += 1
 
-        # 나이대별 MAE
+        # 나이대별 MAE 누적
         per_sample_err = (pred_age - ages.float()).abs()
         for name, lo, hi in AGE_GROUPS:
             mask = (ages >= lo) & (ages <= hi)
@@ -117,13 +106,13 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
                 age_group_abs_err[name] += per_sample_err[mask].sum().item()
                 age_group_count[name]   += mask.sum().item()
 
-        mae_by_age_group = {}
-        for name in age_group_abs_err:
-            if age_group_count[name] > 0:
-                mae_by_age_group[name] = age_group_abs_err[name] / age_group_count[name]
+    # 🔥 루프 끝난 뒤에 한 번만 계산
+    mae_by_age_group = {}
+    for name in age_group_abs_err:
+        if age_group_count[name] > 0:
+            mae_by_age_group[name] = age_group_abs_err[name] / age_group_count[name]
 
     return total_loss / count, total_mae / count, mae_by_age_group
-
 
 # ----- Main Part -----
 def main():
@@ -158,17 +147,16 @@ def main():
     parser.add_argument("--use_race_onehot", action="store_true", default=False)
 
     # Data Augmentation
-        # 🔥 전체 증강 강도
     parser.add_argument("--aug_strength", type=str, default="medium", choices=["none", "weak", "medium", "strong"], help="훈련 데이터 공통 증강 강도")
-
-    # 🔥 나이대별 증강 사용 여부 (켜면 age group별로 강도 다르게)
-    parser.add_argument("--use_age_group_aug", action="store_true",help="나이대별로 서로 다른 증강을 사용할지 여부")
-
-    # 🔥 한 이미지당 몇 배로 늘릴지 (데이터 oversampling용)
+    parser.add_argument("--use_age_group_aug", action="store_true", help="나이대별로 서로 다른 증강을 사용할지 여부")
     parser.add_argument("--aug_dup", type=int, default=1, help="훈련 데이터 한 이미지당 augmentation 샘플 개수 배수")
 
-    args = parser.parse_args()
+    parser.add_argument("--use_random_erase", action="store_true", help="RandomErasing을 사용할지 여부")
+    parser.add_argument("--erase_prob", type=float, default=0.2, help="RandomErasing 적용 확률 (0.0 ~ 1.0)")
+    parser.add_argument("--use_age_group_aug_dup", action="store_true", help="나이대별로 서로 다른 aug_dup을 적용할지 여부")
     
+    args = parser.parse_args()
+
     os.makedirs(args.save_dir, exist_ok=True)
     set_seed(42)
 
@@ -203,16 +191,19 @@ def main():
             root=args.data_root,
             batch_size=args.batch_size,
             img_size=200,
-            num_bins=86,
+            num_bins=91,
             sigma=args.sigma,
             label_type=args.label_type,
             augment_minority_only=args.augment_minority_only,
             val_ratio=0.2,
             seed=42,
-            max_age=85,
+            max_age=90,
             aug_strength=args.aug_strength,
             use_age_group_aug=args.use_age_group_aug,
             aug_dup=args.aug_dup,
+            use_random_erase=args.use_random_erase,
+            erase_prob=args.erase_prob,
+            use_age_group_aug_dup=args.use_age_group_aug_dup,
         )
         print(f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}")
     except Exception as e:
@@ -234,7 +225,7 @@ def main():
         dropout=args.dropout
     ).to(device)
 
-    head = SoftHead(args.feat_dim, num_bins=86, use_race=args.use_race_onehot,).to(device)
+    head = SoftHead(args.feat_dim, num_bins=91, use_race=args.use_race_onehot,).to(device)
 
     # Loss
     if args.loss_fn == "ce":
@@ -264,8 +255,8 @@ def main():
                 sum(p.numel() for p in head.parameters() if p.requires_grad)
     
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
-        val_loss, val_mae, val_mae_by_age = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=86, use_race=args.use_race_onehot)
+        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=91, use_race=args.use_race_onehot)
+        val_loss, val_mae, val_mae_by_age = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=91, use_race=args.use_race_onehot)
 
         current_lr = optimizer.param_groups[0]["lr"]
 
