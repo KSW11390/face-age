@@ -96,6 +96,7 @@ class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
 
         self.cfg = cfg
+        self.age_group_transforms = None
 
         if file_list is None:
             all_files = sorted(glob.glob(os.path.join(cfg.root, "*.jpg")))
@@ -183,8 +184,9 @@ class UTKFaceDataset(Dataset):
 
         # transform 선택
         if self.cfg.split == "train":
-            if self.age_group_tf is not None:
-                tf = self.age_group_tf[group]
+            if self.age_group_transforms is not None:
+                # 혹시 group 키가 없으면 fallback으로 tf_train 사용
+                tf = self.age_group_transforms.get(group, self.tf_train)
             else:
                 tf = self.tf_train
         else:
