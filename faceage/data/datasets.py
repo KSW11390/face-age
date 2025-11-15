@@ -6,12 +6,29 @@ import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
-
 from .transforms import build_transforms, to_pil
 
 # UTKFace: race code
 RACE_NAMES = ["White", "Black", "Asian", "Indian", "Others"]
 NUM_RACES = len(RACE_NAMES)
+AGE_GROUPS = [
+    ("00-09", 0, 9),
+    ("10-19", 10, 19),
+    ("20-29", 20, 29),
+    ("30-39", 30, 39),
+    ("40-49", 40, 49),
+    ("50-59", 50, 59),
+    ("60-69", 60, 69),
+    ("70-79", 70, 79),
+    ("80-85", 80, 85),
+]
+
+def age_to_group_name(age: int) -> str:
+    for name, lo, hi in AGE_GROUPS:
+        if lo <= age <= hi:
+            return name
+    return "others"
+
 
 def _parse_utkface_filename(path: str) -> Tuple[int, int, int]:
     base = os.path.basename(path)
@@ -80,6 +97,10 @@ class UTKFaceCfg:
     label_type: str = "soft" # "soft" | "hard"
     augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
 
+    aug_strength: str = "medium"   # "none" | "weak" | "medium" | "strong"
+    use_age_group_aug: bool = False
+    aug_dup: int = 1               # 한 이미지당 몇 배로 늘릴지
+
 class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
         self.cfg = cfg
@@ -92,31 +113,78 @@ class UTKFaceDataset(Dataset):
         else:
             self.paths = file_list
 
-        self.tf_train = build_transforms(train=True, size=cfg.img_size)
-        self.tf_eval  = build_transforms(train=False, size=cfg.img_size)
+        # 🔥 배수 옵션 저장 (0 이하로 들어와도 최소 1)
+        self.aug_dup = max(1, int(cfg.aug_dup))
+
+        # 🔥 공통 train/eval transform
+        #    - train 쪽은 cfg.aug_strength 반영
+        self.tf_train = build_transforms(
+            train=True,
+            size=cfg.img_size,
+            strength=cfg.aug_strength,
+        )
+        self.tf_eval  = build_transforms(
+            train=False,
+            size=cfg.img_size,
+        )
+
+        # 🔥 나이대별 증강 옵션이 켜져 있으면, 그룹별 transform dict 생성
+        #    (0–19: strong, 20–49: medium, 50+: weak 예시)
+        if cfg.use_age_group_aug:
+            self.age_group_transforms = {}
+            for name, lo, hi in AGE_GROUPS:
+                if hi <= 19:
+                    strength = "strong"
+                elif hi <= 49:
+                    strength = "medium"
+                else:
+                    strength = "weak"
+                self.age_group_transforms[name] = build_transforms(
+                    train=True,
+                    size=cfg.img_size,
+                    strength=strength,
+                )
+        else:
+            self.age_group_transforms = None
 
     def __len__(self) -> int:
-        return len(self.paths)
+        # 🔥 원본 개수 × 배수
+        return len(self.paths) * self.aug_dup
 
     def __getitem__(self, idx: int):
-        path = self.paths[idx]
+        # 🔥 실제 파일 인덱스로 접기
+        real_idx = idx // self.aug_dup
+        path = self.paths[real_idx]
+
         try:
             age, gender, race = _parse_utkface_filename(path)
         except Exception:
-            return self.__getitem__((idx + 1) % len(self.paths))
+            # 에러 나면 다음 샘플로 (dataset 길이 기준으로 순환)
+            return self.__getitem__((idx + 1) % len(self))
 
         img_np = _imread_rgb(path)   # HWC RGB ndarray
         img_pil = to_pil(img_np)     # PIL.Image
 
-        # 증강 규칙 (train 시 비백인만 증강 옵션)
+        # ---------- 어떤 transform을 쓸지 결정 ----------
         if self.cfg.split == "train":
-            if self.cfg.augment_minority_only:
-                img = self.tf_train(img_pil) if race != 0 else self.tf_eval(img_pil)
-            else:
-                img = self.tf_train(img_pil)     # 기본은 훈련 전체 증강
-        else:
-            img = self.tf_eval(img_pil)
+            # 1) 나이대별 증강이 켜져 있다면 → race 상관없이 age 기반으로 결정
+            if self.age_group_transforms is not None:
+                group_name = age_to_group_name(age)
+                tf = self.age_group_transforms.get(group_name, self.tf_train)
 
+            # 2) 아니면, 기존 augment_minority_only 규칙 사용
+            else:
+                if self.cfg.augment_minority_only:
+                    tf = self.tf_train if race != 0 else self.tf_eval
+                else:
+                    tf = self.tf_train
+        else:
+            # val/test는 항상 eval transform
+            tf = self.tf_eval
+
+        img = tf(img_pil)
+
+        # ---------- 라벨 생성 ----------
         if self.cfg.label_type == "soft":
             label = _soft_label(age, self.cfg.num_bins, self.cfg.sigma)
         else:
@@ -125,7 +193,6 @@ class UTKFaceDataset(Dataset):
 
         race1h = _race_one_hot(race)
         return img.float(), label.float(), race1h, torch.tensor(age, dtype=torch.long)
-
 # ---------- DataLoader Builder ----------
 
 def _seed_worker(worker_id):
@@ -153,6 +220,12 @@ def build_dataloaders(
     seed: int = 42,
     pin_memory: Optional[bool] = None,
     max_age: int = 85,
+
+    # 🔥 새로 추가
+    aug_strength: str = "medium",        # "none" | "weak" | "medium" | "strong"
+    use_age_group_aug: bool = False,
+    aug_dup: int = 1,
+
 ):
     all_paths = sorted(glob.glob(os.path.join(root, "*.jpg")))
     if len(all_paths) == 0:
@@ -171,18 +244,28 @@ def build_dataloaders(
         num_bins=num_bins,
         sigma=sigma,
         label_type=label_type,
-        augment_minority_only=augment_minority_only
+        augment_minority_only=augment_minority_only,
+
+        # 🔥 추가
+        aug_strength=aug_strength,
+        use_age_group_aug=use_age_group_aug,
+        aug_dup=aug_dup,
     ), file_list=train_list)
 
     val_ds = UTKFaceDataset(UTKFaceCfg(
         root=root,
         split="val",
-        img_size=img_size, num_bins=num_bins,
+        img_size=img_size,
+        num_bins=num_bins,
         sigma=sigma,
         label_type=label_type,
-        augment_minority_only=False
-    ), file_list=val_list)
+        augment_minority_only=False,
 
+        # 🔥 val은 나이대별 증강도 배수도 쓰지 않는 게 일반적
+        aug_strength="none",
+        use_age_group_aug=False,
+        aug_dup=1,
+    ), file_list=val_list)
     if num_workers is None or pin_memory is None:
         d = _env_defaults()
         if num_workers is None: num_workers = d["num_workers"]
