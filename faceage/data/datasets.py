@@ -84,11 +84,13 @@ class UTKFaceCfg:
     label_type: str = "soft" # "soft" | "hard"
     augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
 
-    aug_strength: str = "medium"   # "none" | "weak" | "medium" | "strong"
+    aug_strength: str = "medium"
     use_age_group_aug: bool = False
-    aug_dup: int = 1               # 한 이미지당 몇 배로 늘릴지
+    aug_dup: int = 1
 
-    use_age_group_aug_dup: bool = False  # 추가
+    use_random_erase: bool = False
+    erase_prob: float = 0.2
+    use_age_group_aug_dup: bool = False
 
 class UTKFaceDataset(Dataset):
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
@@ -228,11 +230,12 @@ def build_dataloaders(
     seed: int = 42,
     pin_memory: Optional[bool] = None,
     max_age: int = 90,
-
-    # 🔥 새로 추가
-    aug_strength: str = "medium",        # "none" | "weak" | "medium" | "strong"
+    aug_strength: str = "medium",
     use_age_group_aug: bool = False,
     aug_dup: int = 1,
+    use_random_erase: bool = False,
+    erase_prob: float = 0.2,
+    use_age_group_aug_dup: bool = False,
 
 ):
     all_paths = sorted(glob.glob(os.path.join(root, "*.jpg")))
@@ -253,11 +256,12 @@ def build_dataloaders(
         sigma=sigma,
         label_type=label_type,
         augment_minority_only=augment_minority_only,
-
-        # 🔥 추가
         aug_strength=aug_strength,
         use_age_group_aug=use_age_group_aug,
         aug_dup=aug_dup,
+        use_random_erase=use_random_erase,
+        erase_prob=erase_prob,
+        use_age_group_aug_dup=use_age_group_aug_dup,
     ), file_list=train_list)
 
     val_ds = UTKFaceDataset(UTKFaceCfg(
@@ -268,11 +272,12 @@ def build_dataloaders(
         sigma=sigma,
         label_type=label_type,
         augment_minority_only=False,
-
-        # 🔥 val은 나이대별 증강도 배수도 쓰지 않는 게 일반적
         aug_strength="none",
         use_age_group_aug=False,
         aug_dup=1,
+        use_random_erase=False,
+        erase_prob=0.0,
+        use_age_group_aug_dup=False,
     ), file_list=val_list)
     if num_workers is None or pin_memory is None:
         d = _env_defaults()
