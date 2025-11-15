@@ -133,12 +133,15 @@ class UTKFaceDataset(Dataset):
         if cfg.use_age_group_aug:
             self.age_group_transforms = {}
             for name, lo, hi in AGE_GROUPS:
-                if hi <= 19:
-                    strength = "strong"
-                elif hi <= 49:
+                if hi <= 19:          # 00–09, 10–19
                     strength = "medium"
-                else:
+                elif hi <= 39:        # 20–29, 30–39
                     strength = "weak"
+                elif hi <= 59:        # 40–49, 50–59
+                    strength = "medium"
+                else:                 # 60–69, 70–79, 80–85
+                    strength = "strong"
+
                 self.age_group_transforms[name] = build_transforms(
                     train=True,
                     size=cfg.img_size,
