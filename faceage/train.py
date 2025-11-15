@@ -175,11 +175,23 @@ def main():
     run_name = (
         f"{args.model_type.upper()}_"
         f"{args.loss_fn}_"
-        f"{args.activation}_"
+        f"act{args.activation}_"
         f"sig{args.sigma}_"
         f"drop{args.dropout}_"
-        f"wd{args.weight_decay}"
+        f"wd{args.weight_decay}_"
+        f"aug{args.aug_strength}_"
+        f"dup{args.aug_dup}"
     )
+
+# 추가 플래그: 켜져 있을 때만 붙인다
+    if args.use_age_group_aug:
+        run_name += "_ageAug"
+
+    if args.use_age_group_aug_dup:
+        run_name += "_ageDup"
+
+    if args.use_random_erase:
+        run_name += f"_erase{args.erase_prob}"
 
     wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
     wandb.define_metric("epoch")
