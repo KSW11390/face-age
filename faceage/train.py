@@ -106,7 +106,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
                 age_group_abs_err[name] += per_sample_err[mask].sum().item()
                 age_group_count[name]   += mask.sum().item()
 
-    # 🔥 루프 끝난 뒤에 한 번만 계산
+    # 루프 끝난 뒤에 한 번만 계산
     mae_by_age_group = {}
     for name in age_group_abs_err:
         if age_group_count[name] > 0:
@@ -183,7 +183,7 @@ def main():
         f"dup{args.aug_dup}"
     )
 
-# 추가 플래그: 켜져 있을 때만 붙인다
+# 플래그: 켜져 있을 때만 붙임
     if args.use_age_group_aug:
         run_name += "_ageAug"
 
@@ -290,14 +290,14 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch
             }, best_ckpt)
-            print(f"🌟 New best model saved (val_loss={val_loss:.4f}) → {best_ckpt}")
+            print(f"New best model saved (val_loss={val_loss:.4f}) → {best_ckpt}")
             wandb.log({"checkpoint/best_epoch": epoch,
                    "checkpoint/best_val_loss": val_loss,
                    "checkpoint/best_val_mae": val_mae})
         else:
             bad_epochs += 1
             if bad_epochs >= args.patience:
-                print(f"⏹ Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)")
+                print(f"Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)")
                 break    
         
         mae_by_age_logs = {f"mae_by_age/{k}": v for k, v in val_mae_by_age.items()}
@@ -326,11 +326,11 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch
             }, ckpt_path)
-            print(f"💾 Saved checkpoint → {ckpt_path}")
+            print(f"Saved checkpoint → {ckpt_path}")
             wandb.log({"checkpoint/saved_epoch": epoch})
 
     wandb.finish()
-    print("✅ Training complete!")
+    print("Training complete!")
 
 if __name__ == "__main__":
     main()

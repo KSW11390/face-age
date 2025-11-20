@@ -5,11 +5,10 @@ import torch
 import torch.nn as nn
 
 # =========================================================
-# 공통 규약
-# - 입력: (B, C, H, W)  (예: H=W=200)
-# - 출력: (B, feat_dim)
-# - 다운샘플: 정확히 5회 → 200→100→50→25→12→6
-# - AdaptiveAvgPool2d((1,1))로 해상도 독립
+# - Input: (B, C, H, W)
+# - Output: (B, feat_dim)
+# - DownSample: 5회 → 200→100→50→25→12→6
+# - AdaptiveAvgPool2d((1,1))
 # =========================================================
 
 # ---------------- VGG-style ----------------
@@ -33,7 +32,7 @@ class VGGStyle(nn.Module):
         stages = []
         in_ch = in_channels
         ch = width
-        for _ in range(5):  # 정확히 5번 다운샘플
+        for _ in range(5):  # 5번 다운샘플
             stages += [
                 nn.Conv2d(in_ch, ch, kernel_size=3, padding=1, bias=False),
                 nn.BatchNorm2d(ch), act,
@@ -43,7 +42,7 @@ class VGGStyle(nn.Module):
                 nn.MaxPool2d(kernel_size=2, stride=2),  # /2
             ]
             in_ch = ch
-            ch *= 2  # 다음 스테이지 채널 2배(선호에 따라 고정해도 됨)
+            ch *= 2  # 다음 스테이지 채널 2배
 
         self.features = nn.Sequential(*stages)
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
@@ -58,13 +57,6 @@ class VGGStyle(nn.Module):
 
 # ---------------- ResNet-style ----------------
 class BasicBlockExactHalf(nn.Module):
-    """
-    ResNet BasicBlock 변형.
-    - stride=1: conv3x3 → conv3x3
-    - stride=2: 첫 conv는 conv2x2(stride=2,pad=0)로 '정확히 /2'를 보장
-                (25→12, 12→6 같은 홀수 케이스도 정확히 반으로)
-    - downsample 경로도 conv2x2(stride=2,pad=0) 사용
-    """
     def __init__(
         self,
         in_ch: int,
@@ -131,8 +123,6 @@ class ResNetStyle(nn.Module):
     ):
         super().__init__()
         act = activation or nn.ReLU()
-
-        # stem: 200 -> 100 (conv7 s=2) -> 50 (maxpool2)
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, width, kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm2d(width),
@@ -140,9 +130,7 @@ class ResNetStyle(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
-        # 4개 스테이지 (총 5번 다운샘플 중 2번은 stem에서 끝남)
-        # stage1: keep size, stage2~4: stride=2 (정확히 /2)
-        chs = [width, width*2, width*4, width*8]  # 채널 진행
+        chs = [width, width*2, width*4, width*8]
         self.stage1 = nn.Sequential(
             BasicBlockExactHalf(chs[0], chs[0], stride=1, activation=act, dropout=dropout),
             BasicBlockExactHalf(chs[0], chs[0], stride=1, activation=act, dropout=dropout),
@@ -152,7 +140,7 @@ class ResNetStyle(nn.Module):
             BasicBlockExactHalf(chs[1], chs[1], stride=1, activation=act, dropout=dropout),
         )
         self.stage3 = nn.Sequential(
-            BasicBlockExactHalf(chs[1], chs[2], stride=2, activation=act, dropout=dropout),  # 25->12 ✅
+            BasicBlockExactHalf(chs[1], chs[2], stride=2, activation=act, dropout=dropout),  # 25->12
             BasicBlockExactHalf(chs[2], chs[2], stride=1, activation=act, dropout=dropout),
         )
         self.stage4 = nn.Sequential(
@@ -173,8 +161,6 @@ class ResNetStyle(nn.Module):
         x = self.proj(x)
         return x
 
-
-# ---------------- 팩토리 ----------------
 REGISTRY: Dict[str, Callable[..., nn.Module]] = {
     "vgg": VGGStyle,
     "resnet": ResNetStyle,
