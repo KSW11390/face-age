@@ -1,3 +1,11 @@
+"""
+faceage/train.py
+얼굴 나이 추정 모델 학습 스크립트
+- 백본(VGG / ResNet) + SoftHead(soft label regression) 구조
+- Hard / Soft 라벨, CE / MSE / KLD 손실 선택 가능
+- WandB 로깅, Early Stopping, 나이대별 MAE 계산 등 포함
+"""
+
 import os
 import argparse
 import torch
@@ -14,10 +22,29 @@ from faceage.utils.seed import set_seed
 from faceage.data.constants import AGE_GROUPS
 
 
+"""
+함수 이름: train_one_epoch
+기능: epoch 동안 모델을 학습하고 평균 loss와 MAE를 반환
+파라미터: 
+1) model : nn.Module 백본 네트워크 (feature extractor)
+2) head : nn.Module SoftHead (bin classification -> soft age regression)
+3) loader : DataLoader 훈련 데이터 로더
+4) criterion : nn.Module 손실 함수
+5) optimizer : torch.optim.Optimizer 파라미터 업데이트에 사용할 옵티마이저
+6) device : torch.device 'cuda' 또는 'cpu'
+7) label_type : str "hard" (one-hot) 또는 "soft" (gaussian soft label)
+8) loss_fn : str "ce" / "mse" / "kld"
+9) num_bins : int 나이 bin 개수 (기본 91 → 0~90세)
+10) use_race : bool, default=False race one-hot 벡터를 head 입력에 결합(concat) 할지 여부
+리턴값 : Tuple[float, float]
+        (epoch 평균 loss, epoch 평균 MAE)
+"""
 def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.train()
     total_loss, total_mae = 0.0, 0.0
     count = 0
+
+    # 0 ~ num_bins-1 까지의 실수형 bin 중심값 (예: 0,1,2,...,90)
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
@@ -26,10 +53,13 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
         optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
 
+        # Feature extraction
         feats = model(imgs) # (Batch, feat_dim)
+
+        # Classification logits (bin 개수만큼)
         logits = head(feats, races) # (Batch, num_bins)
 
-        # Loss
+        # Loss 계산
         if label_type == "hard" and loss_fn == "ce": # CrossEntropyLoss
             targets = labels.argmax(dim=1)
             loss = criterion(logits, targets)
@@ -42,11 +72,12 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
         else:
             raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
 
-        # MAE
+        # MAE 계산 (expected age)
         probs = F.softmax(logits, dim=1)
-        pred_age = (probs * bins).sum(dim=1)
+        pred_age = (probs * bins).sum(dim=1)    # E[age] = Σ p_i * i
         mae = (pred_age - ages.float()).abs().mean()
 
+        # 역전파 & 파라미터 업데이트
         loss.backward()
         optimizer.step()
 
@@ -56,7 +87,12 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
     return total_loss / count, total_mae / count
 
-
+"""
+함수 이름: validate
+기능 : 검증 데이터로 loss, 전체 MAE, 나이대별 MAE를 계산하여 반환
+리턴값: Tuple[float, float, Dict[str, float]]
+        (val_loss, val_mae, {age_group_name: mae})
+"""
 @torch.no_grad()
 def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
     model.eval()
@@ -64,7 +100,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
     count = 0
     bins = torch.arange(num_bins, device=device, dtype=torch.float32)
 
-    # 나이대별 MAE 누적
+    # 나이대별 누적 오차 및 샘플 수
     age_group_abs_err = {name: 0.0 for name, _, _ in AGE_GROUPS}
     age_group_count   = {name: 0   for name, _, _ in AGE_GROUPS}
 
@@ -89,7 +125,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
         else:
             raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
 
-        # === MAE ===
+        # MAE (expected age)
         probs = F.softmax(logits, dim=1)
         pred_age = (probs * bins).sum(dim=1)
         mae = (pred_age - ages.float()).abs().mean()
@@ -106,7 +142,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
                 age_group_abs_err[name] += per_sample_err[mask].sum().item()
                 age_group_count[name]   += mask.sum().item()
 
-    # 루프 끝난 뒤에 한 번만 계산
+    # 나이대별 평균 MAE 계산 (루프 끝난 뒤에 한 번만 계산)
     mae_by_age_group = {}
     for name in age_group_abs_err:
         if age_group_count[name] > 0:
@@ -118,6 +154,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
 def main():
     # argparse 정의
     parser = argparse.ArgumentParser(description="Face-Age Training")
+    # --- data ---
     parser.add_argument("--data_root", type=str, required=True) # data 경로
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -171,7 +208,7 @@ def main():
         "elu": nn.ELU(),
     }[args.activation]
 
-    # WandB run_name
+    # WandB run_name 자동 생성
     run_name = (
         f"{args.model_type.upper()}_"
         f"{args.loss_fn}_"
@@ -197,7 +234,7 @@ def main():
     wandb.define_metric("epoch")
     wandb.define_metric("loss/*", step_metric="epoch")
 
-    # --- Data ---
+    # --- Data loader ---
     try:
         train_loader, val_loader = build_dataloaders(
             root=args.data_root,
@@ -239,7 +276,7 @@ def main():
 
     head = SoftHead(args.feat_dim, num_bins=91, use_race=args.use_race_onehot,).to(device)
 
-    # Loss
+    # --- Loss ---
     if args.loss_fn == "ce":
         criterion = torch.nn.CrossEntropyLoss()
     elif args.loss_fn == "mse":
@@ -247,7 +284,7 @@ def main():
     elif args.loss_fn == "kld":
         criterion = torch.nn.KLDivLoss(reduction="batchmean")
     
-    # Optimizer
+    # --- Optimizer ---
     params = list(model.parameters()) + list(head.parameters())
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
@@ -277,7 +314,7 @@ def main():
             f"train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
             f"train_mae={train_mae:.2f}, val_mae={val_mae:.2f}, lr={current_lr:.2e}")
 
-        # === Early Stopping (Val Loss 기준) ===
+        # Early Stopping (Val Loss 기준)
         if val_loss < best_val - 1e-6:
             best_val = val_loss
             bad_epochs = 0
@@ -302,7 +339,7 @@ def main():
         
         mae_by_age_logs = {f"mae_by_age/{k}": v for k, v in val_mae_by_age.items()}
 
-        # === W&B 로깅 ===
+        # W&B 로깅 
         wandb.log({
             "epoch": epoch,
             "loss/train": train_loss,
