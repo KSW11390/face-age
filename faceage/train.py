@@ -150,7 +150,24 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
 
     return total_loss / count, total_mae / count, mae_by_age_group
 
-# ----- Main Part -----
+"""
+함수 이름: main
+기능 : 전체 학습 파이프라인 실행
+주요 동작 흐름:
+    1. argparse로 훈련 설정 파싱 (데이터 경로, 에포크, 배치 사이즈, 학습률, 모델 종류 등)
+    2. 실험 결과 저장 디렉토리 생성 및 랜덤 시드 고정
+    3. WandB 실험 로깅 초기화 (run  이름 자동 생성)
+    4. build_dataloaders()로 훈련, 검증 DataLoader 생성
+    5. 백본 모델 (VGG or ResNet) + SoftHead 구성 및 GPU 이동
+    6. 손실함수 (CE/MSE/KLD), 옵티마이저(Adam/AdamW/SGD 설정)
+    7. 에포크 반복 :
+        - train_one_epoch() 로 훈련
+        - validate()로검증 및 나이대별 MAE 계산
+        - Val loss 기준 Early Stopping 및 Best 모델 저장
+        - WandB에 loss, MAE, learning rate, 나이대별 MAE 등 로깅
+        - 5에포크 마다 체크포인트 저장
+    8. 훈련 종료 후 WandB 세션 종료
+"""
 def main():
     # argparse 정의
     parser = argparse.ArgumentParser(description="Face-Age Training")
