@@ -119,9 +119,10 @@ def main():     # 모델과 헤드 로드 -> 정방향 패스 -> 추론 -> 결�
             plt.text(0.1, 0.5, info_text, fontsize=20, va='center', ha='left')
             plt.title("Inference Result", fontsize=14)
             
-            save_name = f"result_{os.path.basename(img_path)}"
-            plt.savefig(save_name)
+            # save_name = f"result_{os.path.basename(img_path)}"
+            # plt.savefig(save_name)
                 
+            plt.show()
             plt.close() # 메모리 누수 방지를 위해 닫기
 
 
