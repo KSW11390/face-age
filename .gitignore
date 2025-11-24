@@ -8,7 +8,6 @@ venv/
 datasets/
 outputs/
 wandb/
-*.pt
 *.ckpt
 .ipynb_checkpoints/
 faceage.egg-info/
