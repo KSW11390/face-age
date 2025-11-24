@@ -1,5 +1,5 @@
 # Face Age Estimation (UTKFace)
-
+**Test.ipynb**을 colab에서 실행하여 실험 재현, inference이 가능합니다.
 이 프로젝트는 **UTKFace** 얼굴 이미지 데이터셋을 이용해  
 입력 이미지로부터 사람의 나이를 예측하는 **Face Age Estimation** 모델을 학습·추론하는 코드입니다.
 
