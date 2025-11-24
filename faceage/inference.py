@@ -121,7 +121,8 @@ def main():     # 모델과 헤드 로드 -> 정방향 패스 -> 추론 -> 결�
             
             # save_name = f"result_{os.path.basename(img_path)}"
             # plt.savefig(save_name)
-                
+            
+            plt.tight_layout()
             plt.show()
             plt.close() # 메모리 누수 방지를 위해 닫기
 
