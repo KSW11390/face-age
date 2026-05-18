@@ -6,7 +6,7 @@
 dataset : https://www.kaggle.com/datasets/moritzm00/utkface-cropped
 
 PyTorch 기반으로 구현되어 있으며,  
-`ResNet` / `VGG` 백본과 **soft label + KLD loss**를 사용해 나이 분포를 회귀 형태로 학습합니다.
+`ResNet` / `VGG` 백본과 **soft label + KLD loss**를 사용해 나이 분포를 학습합니다.
 
 
 ---
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 입력 이미지로부터 사람의 나이를 예측하는 **Face Age Estimation** 모델을 학습·추론하는 코드입니다.
 
 PyTorch 기반으로 구현되어 있으며,  
-`ResNet` / `VGG` 백본과 **soft label + KLD loss**를 사용해 나이 분포를 회귀 형태로 학습합니다.
+`ResNet` / `VGG` 백본과 **soft label + KLD loss**를 사용해 나이 분포를 학습합니다.
 
 ---
 
