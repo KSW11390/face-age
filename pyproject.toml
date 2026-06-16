@@ -19,11 +19,10 @@ colab = [
   "wandb",
   "torchmetrics",
 ]
-dev = ["pytest", "ruff", "black"]
+dev = ["pytest", "ruff"]
 
-[tool.black]
-target-version = ["py310"]
-line-length = 88
+[tool.ruff]
+target-version = "py310"
 
 [tool.setuptools] # setuptools에게 패키지가 뭔지 알려줌!
 packages = ["faceage"]

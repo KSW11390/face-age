@@ -9,7 +9,6 @@ def build_transforms(
     use_random_erase: bool = False,
     erase_prob: float = 0.2,
 ):
-
     normalize = T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 
     # train set이 아닐 경우 바로 return

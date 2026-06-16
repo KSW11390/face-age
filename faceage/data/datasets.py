@@ -158,9 +158,9 @@ def _filter_by_age(paths: List[str], max_age: int = 90) -> List[str]:
 
     print(f"[UTKFace] Removed {dropped} images with age > {max_age}")
     # 필터링 후 샘플이 너무 적으면 assert로 막아둠
-    assert (
-        len(kept) > 100
-    ), f"[UTKFace] Too few samples after filtering (<= {max_age}yrs)"
+    assert len(kept) > 100, (
+        f"[UTKFace] Too few samples after filtering (<= {max_age}yrs)"
+    )
     return kept
 
 
