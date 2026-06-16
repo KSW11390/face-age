@@ -1,19 +1,28 @@
 from PIL import Image
 import torchvision.transforms as T
 
-def build_transforms(train: bool, size: int = 200, strength: str = "medium", use_random_erase: bool = False, erase_prob: float = 0.2):
+
+def build_transforms(
+    train: bool,
+    size: int = 200,
+    strength: str = "medium",
+    use_random_erase: bool = False,
+    erase_prob: float = 0.2,
+):
 
     normalize = T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-    
+
     # train set이 아닐 경우 바로 return
     if not train:
-        return T.Compose([
-            T.Resize(size),
-            T.CenterCrop(size),
-            T.ToTensor(),
-            normalize,
-        ])
-    
+        return T.Compose(
+            [
+                T.Resize(size),
+                T.CenterCrop(size),
+                T.ToTensor(),
+                normalize,
+            ]
+        )
+
     # 공통 전처리 (train set)
     base = [
         T.Pad(padding=int(size * 0.08), padding_mode="reflect"),
@@ -33,7 +42,7 @@ def build_transforms(train: bool, size: int = 200, strength: str = "medium", use
             T.RandomPerspective(distortion_scale=0.2, p=0.4),
             T.ColorJitter(brightness=0.15, contrast=0.15),
         ]
-    elif strength == "strong": # randomgrayscale, gausianblurr, erase
+    elif strength == "strong":  # randomgrayscale, gausianblurr, erase
         aug = [
             T.RandomAffine(degrees=18, translate=(0.08, 0.08), scale=(0.85, 1.2)),
             T.RandomPerspective(distortion_scale=0.35, p=0.6),
@@ -43,20 +52,17 @@ def build_transforms(train: bool, size: int = 200, strength: str = "medium", use
         ]
     else:
         raise ValueError(f"Unknown aug strength: {strength}")
-    
+
     tail = [
         T.ToTensor(),
         normalize,
     ]
-    
+
     if use_random_erase and strength != "none":
-        tail.append(T.RandomErasing(
-            p=erase_prob,
-            scale=(0.02, 0.15),
-            ratio=(0.3, 3.3)
-        ))
+        tail.append(T.RandomErasing(p=erase_prob, scale=(0.02, 0.15), ratio=(0.3, 3.3)))
 
     return T.Compose(base + aug + tail)
+
 
 # to_pil
 # numpy 배열 (HWC,RGB) -> PIL.image 객체로 변환

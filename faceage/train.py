@@ -11,7 +11,7 @@ import argparse
 import torch
 import wandb
 import torch.nn as nn
-import torch.nn.functional as F 
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from faceage.data.datasets import build_dataloaders
@@ -38,7 +38,20 @@ from faceage.data.constants import AGE_GROUPS
 리턴값 : Tuple[float, float]
         (epoch 평균 loss, epoch 평균 MAE)
 """
-def train_one_epoch(model, head, loader, criterion, optimizer, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
+
+
+def train_one_epoch(
+    model,
+    head,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    label_type: str,
+    loss_fn: str,
+    num_bins: int,
+    use_race: bool = False,
+):
     model.train()
     total_loss, total_mae = 0.0, 0.0
     count = 0
@@ -48,32 +61,34 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
     for imgs, labels, races, ages in tqdm(loader, desc="Train", leave=False):
         imgs, labels, ages = imgs.to(device), labels.to(device), ages.to(device)
-        races = races.to(device) if use_race else None   # race 사용 여부 결정
+        races = races.to(device) if use_race else None  # race 사용 여부 결정
 
-        optimizer.zero_grad(set_to_none=True) # 이전 batch의 gradient 초기화
+        optimizer.zero_grad(set_to_none=True)  # 이전 batch의 gradient 초기화
 
         # Feature extraction
-        feats = model(imgs) # (Batch, feat_dim)
+        feats = model(imgs)  # (Batch, feat_dim)
 
         # Classification logits (bin 개수만큼)
-        logits = head(feats, races) # (Batch, num_bins)
+        logits = head(feats, races)  # (Batch, num_bins)
 
         # Loss 계산
-        if label_type == "hard" and loss_fn == "ce": # CrossEntropyLoss
+        if label_type == "hard" and loss_fn == "ce":  # CrossEntropyLoss
             targets = labels.argmax(dim=1)
             loss = criterion(logits, targets)
-        elif label_type == "soft" and loss_fn == "kld": # KLD
-            log_probs = torch.log_softmax(logits, dim=1) 
+        elif label_type == "soft" and loss_fn == "kld":  # KLD
+            log_probs = torch.log_softmax(logits, dim=1)
             loss = criterion(log_probs, labels)
-        elif label_type == "soft" and loss_fn == "mse": # MSE
+        elif label_type == "soft" and loss_fn == "mse":  # MSE
             probs = torch.softmax(logits, dim=1)
             loss = criterion(probs, labels)
         else:
-            raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
+            raise ValueError(
+                f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}"
+            )
 
         # MAE 계산 (expected age)
         probs = F.softmax(logits, dim=1)
-        pred_age = (probs * bins).sum(dim=1)    # E[age] = Σ p_i * i
+        pred_age = (probs * bins).sum(dim=1)  # E[age] = Σ p_i * i
         mae = (pred_age - ages.float()).abs().mean()
 
         # 역전파 & 파라미터 업데이트
@@ -86,14 +101,27 @@ def train_one_epoch(model, head, loader, criterion, optimizer, device, label_typ
 
     return total_loss / count, total_mae / count
 
+
 """
 함수 이름: validate
 기능 : 검증 데이터로 loss, 전체 MAE, 나이대별 MAE를 계산하여 반환
 리턴값: Tuple[float, float, Dict[str, float]]
         (val_loss, val_mae, {age_group_name: mae})
 """
+
+
 @torch.no_grad()
-def validate(model, head, loader, criterion, device, label_type: str, loss_fn: str, num_bins: int, use_race: bool = False):
+def validate(
+    model,
+    head,
+    loader,
+    criterion,
+    device,
+    label_type: str,
+    loss_fn: str,
+    num_bins: int,
+    use_race: bool = False,
+):
     model.eval()
     total_loss, total_mae = 0.0, 0.0
     count = 0
@@ -101,13 +129,13 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
 
     # 나이대별 누적 오차 및 샘플 수
     age_group_abs_err = {name: 0.0 for name, _, _ in AGE_GROUPS}
-    age_group_count   = {name: 0   for name, _, _ in AGE_GROUPS}
+    age_group_count = {name: 0 for name, _, _ in AGE_GROUPS}
 
     for imgs, labels, races, ages in tqdm(loader, desc="Val", leave=False):
         imgs, labels, ages = imgs.to(device), labels.to(device), ages.to(device)
-        races = races.to(device) if use_race else None   # race 사용 여부 결정
+        races = races.to(device) if use_race else None  # race 사용 여부 결정
 
-        feats  = model(imgs)
+        feats = model(imgs)
         logits = head(feats, races)
 
         # Loss
@@ -122,7 +150,9 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
             loss = criterion(F.softmax(logits, dim=1), labels)
 
         else:
-            raise ValueError(f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}")
+            raise ValueError(
+                f"Incompatible combo: label_type={label_type}, loss_fn={loss_fn}"
+            )
 
         # MAE (expected age)
         probs = F.softmax(logits, dim=1)
@@ -139,7 +169,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
             mask = (ages >= lo) & (ages <= hi)
             if mask.any():
                 age_group_abs_err[name] += per_sample_err[mask].sum().item()
-                age_group_count[name]   += mask.sum().item()
+                age_group_count[name] += mask.sum().item()
 
     # 나이대별 평균 MAE 계산 (루프 끝난 뒤에 한 번만 계산)
     mae_by_age_group = {}
@@ -148,6 +178,7 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
             mae_by_age_group[name] = age_group_abs_err[name] / age_group_count[name]
 
     return total_loss / count, total_mae / count, mae_by_age_group
+
 
 """
 함수 이름: main
@@ -167,47 +198,107 @@ def validate(model, head, loader, criterion, device, label_type: str, loss_fn: s
         - 5에포크 마다 체크포인트 저장
     8. 훈련 종료 후 WandB 세션 종료
 """
+
+
 def main():
     # argparse 정의
     parser = argparse.ArgumentParser(description="Face-Age Training")
     # --- data ---
-    parser.add_argument("--data_root", type=str, required=True) # data 경로
+    parser.add_argument("--data_root", type=str, required=True)  # data 경로
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints") # checkpoint 저장 경로
-    parser.add_argument("--augment_minority_only", action="store_true") # data 불균형 해결용 옵션
-    parser.add_argument("--wandb_project", type=str, default="face-age") # wandb project name
+    parser.add_argument(
+        "--save_dir", type=str, default="/content/drive/MyDrive/face-age/checkpoints"
+    )  # checkpoint 저장 경로
+    parser.add_argument(
+        "--augment_minority_only", action="store_true"
+    )  # data 불균형 해결용 옵션
+    parser.add_argument(
+        "--wandb_project", type=str, default="face-age"
+    )  # wandb project name
 
     # --- Model(type, feat_dim, width, activation, droput, patience) ---
-    parser.add_argument("--model_type", type=str, default="vgg", choices=["vgg", "resnet"])
+    parser.add_argument(
+        "--model_type", type=str, default="vgg", choices=["vgg", "resnet"]
+    )
     parser.add_argument("--feat_dim", type=int, default=128)
     parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leakyrelu", "gelu", "elu"])
+    parser.add_argument(
+        "--activation",
+        type=str,
+        default="relu",
+        choices=["relu", "leakyrelu", "gelu", "elu"],
+    )
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--patience", type=int, default=8)
 
     # --- Optimizer ---
-    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"])
+    parser.add_argument(
+        "--optimizer", type=str, default="adam", choices=["adam", "adamw", "sgd"]
+    )
     parser.add_argument("--weight_decay", type=float, default=0.0)
 
     # --- Loss ---
-    parser.add_argument("--label_type", type=str, default="hard", choices=["hard", "soft"], help="라벨 생성 방식 (hard=one-hot, soft=gaussian soft label)")
-    parser.add_argument("--loss_fn", type=str, default="ce", choices=["ce", "mse", "kld"],help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)")
-    parser.add_argument("--sigma", type=float, default=1.5, help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.")
+    parser.add_argument(
+        "--label_type",
+        type=str,
+        default="hard",
+        choices=["hard", "soft"],
+        help="라벨 생성 방식 (hard=one-hot, soft=gaussian soft label)",
+    )
+    parser.add_argument(
+        "--loss_fn",
+        type=str,
+        default="ce",
+        choices=["ce", "mse", "kld"],
+        help="손실함수 선택 (ce=CrossEntropy, mse=MSE, kld=KLDiv)",
+    )
+    parser.add_argument(
+        "--sigma",
+        type=float,
+        default=1.5,
+        help="soft label 가우시안 폭 (sigma). label_type='soft'일 때만 사용됨.",
+    )
 
     # --- race_one_hot_vector ---
     parser.add_argument("--use_race_onehot", action="store_true", default=False)
 
     # Data Augmentation
-    parser.add_argument("--aug_strength", type=str, default="medium", choices=["none", "weak", "medium", "strong"], help="훈련 데이터 공통 증강 강도")
-    parser.add_argument("--use_age_group_aug", action="store_true", help="나이대별로 서로 다른 증강을 사용할지 여부")
-    parser.add_argument("--aug_dup", type=int, default=1, help="훈련 데이터 한 이미지당 augmentation 샘플 개수 배수")
+    parser.add_argument(
+        "--aug_strength",
+        type=str,
+        default="medium",
+        choices=["none", "weak", "medium", "strong"],
+        help="훈련 데이터 공통 증강 강도",
+    )
+    parser.add_argument(
+        "--use_age_group_aug",
+        action="store_true",
+        help="나이대별로 서로 다른 증강을 사용할지 여부",
+    )
+    parser.add_argument(
+        "--aug_dup",
+        type=int,
+        default=1,
+        help="훈련 데이터 한 이미지당 augmentation 샘플 개수 배수",
+    )
 
-    parser.add_argument("--use_random_erase", action="store_true", help="RandomErasing을 사용할지 여부")
-    parser.add_argument("--erase_prob", type=float, default=0.2, help="RandomErasing 적용 확률 (0.0 ~ 1.0)")
-    parser.add_argument("--use_age_group_aug_dup", action="store_true", help="나이대별로 서로 다른 aug_dup을 적용할지 여부")
-    
+    parser.add_argument(
+        "--use_random_erase", action="store_true", help="RandomErasing을 사용할지 여부"
+    )
+    parser.add_argument(
+        "--erase_prob",
+        type=float,
+        default=0.2,
+        help="RandomErasing 적용 확률 (0.0 ~ 1.0)",
+    )
+    parser.add_argument(
+        "--use_age_group_aug_dup",
+        action="store_true",
+        help="나이대별로 서로 다른 aug_dup을 적용할지 여부",
+    )
+
     args = parser.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -215,7 +306,7 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🚀 Using device: {device}")
-    
+
     # Activation Function
     ACT = {
         "relu": nn.ReLU(),
@@ -236,7 +327,7 @@ def main():
         f"dup{args.aug_dup}"
     )
 
-# 플래그: 켜져 있을 때만 붙임
+    # 플래그: 켜져 있을 때만 붙임
     if args.use_age_group_aug:
         run_name += "_ageAug"
 
@@ -270,14 +361,16 @@ def main():
             erase_prob=args.erase_prob,
             use_age_group_aug_dup=args.use_age_group_aug_dup,
         )
-        print(f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}")
+        print(
+            f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}"
+        )
     except Exception as e:
         import traceback
         import glob
+
         print("[ERROR] build_dataloaders failed:", type(e).__name__, e)
         print("[DEBUG] data_root=", args.data_root)
-        print("[DEBUG] some files:",
-            glob.glob(os.path.join(args.data_root, "*"))[:5])
+        print("[DEBUG] some files:", glob.glob(os.path.join(args.data_root, "*"))[:5])
         traceback.print_exc()
         return
 
@@ -288,10 +381,14 @@ def main():
         feat_dim=args.feat_dim,
         width=args.width,
         activation=ACT,
-        dropout=args.dropout
+        dropout=args.dropout,
     ).to(device)
 
-    head = SoftHead(args.feat_dim, num_bins=91, use_race=args.use_race_onehot,).to(device)
+    head = SoftHead(
+        args.feat_dim,
+        num_bins=91,
+        use_race=args.use_race_onehot,
+    ).to(device)
 
     # --- Loss ---
     if args.loss_fn == "ce":
@@ -300,36 +397,69 @@ def main():
         criterion = torch.nn.MSELoss()
     elif args.loss_fn == "kld":
         criterion = torch.nn.KLDivLoss(reduction="batchmean")
-    
+
     # --- Optimizer ---
     params = list(model.parameters()) + list(head.parameters())
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     elif args.optimizer == "adamw":
-        optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
+        optimizer = torch.optim.AdamW(
+            params, lr=args.lr, weight_decay=args.weight_decay
+        )
     else:  # sgd
-        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9,
-                                    weight_decay=args.weight_decay, nesterov=True)
+        optimizer = torch.optim.SGD(
+            params,
+            lr=args.lr,
+            momentum=0.9,
+            weight_decay=args.weight_decay,
+            nesterov=True,
+        )
 
     # --- Training ---
     best_val = float("inf")  # 지금까지 최소 val_loss
-    bad_epochs = 0           # 개선 없는 epoch 수
+    bad_epochs = 0  # 개선 없는 epoch 수
 
     # 총 Parameter 수
-    params_total = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in head.parameters())
-    params_train = sum(p.numel() for p in model.parameters() if p.requires_grad) + \
-                sum(p.numel() for p in head.parameters() if p.requires_grad)
-    
+    params_total = sum(p.numel() for p in model.parameters()) + sum(
+        p.numel() for p in head.parameters()
+    )
+    params_train = sum(p.numel() for p in model.parameters() if p.requires_grad) + sum(
+        p.numel() for p in head.parameters() if p.requires_grad
+    )
+
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_mae = train_one_epoch(model, head, train_loader, criterion, optimizer, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=91, use_race=args.use_race_onehot)
-        val_loss, val_mae, val_mae_by_age = validate(model, head, val_loader, criterion, device, label_type=args.label_type, loss_fn=args.loss_fn, num_bins=91, use_race=args.use_race_onehot)
+        train_loss, train_mae = train_one_epoch(
+            model,
+            head,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            label_type=args.label_type,
+            loss_fn=args.loss_fn,
+            num_bins=91,
+            use_race=args.use_race_onehot,
+        )
+        val_loss, val_mae, val_mae_by_age = validate(
+            model,
+            head,
+            val_loader,
+            criterion,
+            device,
+            label_type=args.label_type,
+            loss_fn=args.loss_fn,
+            num_bins=91,
+            use_race=args.use_race_onehot,
+        )
 
         current_lr = optimizer.param_groups[0]["lr"]
 
         # 콘솔 출력
-        print(f"[{epoch}/{args.epochs}] "
+        print(
+            f"[{epoch}/{args.epochs}] "
             f"train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
-            f"train_mae={train_mae:.2f}, val_mae={val_mae:.2f}, lr={current_lr:.2e}")
+            f"train_mae={train_mae:.2f}, val_mae={val_mae:.2f}, lr={current_lr:.2e}"
+        )
 
         # Early Stopping (Val Loss 기준)
         if val_loss < best_val - 1e-6:
@@ -337,54 +467,73 @@ def main():
             bad_epochs = 0
 
             # best checkpoint 저장
-            best_ckpt = os.path.join(args.save_dir, f"best_{args.model_type}_W{args.width}_F{args.feat_dim}.pt")
-            torch.save({
-                "model": model.state_dict(),
-                "head": head.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch
-            }, best_ckpt)
+            best_ckpt = os.path.join(
+                args.save_dir,
+                f"best_{args.model_type}_W{args.width}_F{args.feat_dim}.pt",
+            )
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "head": head.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "epoch": epoch,
+                },
+                best_ckpt,
+            )
             print(f"New best model saved (val_loss={val_loss:.4f}) → {best_ckpt}")
-            wandb.log({"checkpoint/best_epoch": epoch,
-                   "checkpoint/best_val_loss": val_loss,
-                   "checkpoint/best_val_mae": val_mae})
+            wandb.log(
+                {
+                    "checkpoint/best_epoch": epoch,
+                    "checkpoint/best_val_loss": val_loss,
+                    "checkpoint/best_val_mae": val_mae,
+                }
+            )
         else:
             bad_epochs += 1
             if bad_epochs >= args.patience:
-                print(f"Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)")
-                break    
-        
+                print(
+                    f"Early stopping at epoch {epoch} (no improvement for {args.patience} epochs)"
+                )
+                break
+
         mae_by_age_logs = {f"mae_by_age/{k}": v for k, v in val_mae_by_age.items()}
 
-        # W&B 로깅 
-        wandb.log({
-            "epoch": epoch,
-            "loss/train": train_loss,
-            "loss/val": val_loss,
-            "mae/train": train_mae,
-            "mae/val": val_mae,
-            "lr": current_lr,
-            "params/total": params_total,
-            "params/trainable": params_train,
-            **mae_by_age_logs,
-        })
+        # W&B 로깅
+        wandb.log(
+            {
+                "epoch": epoch,
+                "loss/train": train_loss,
+                "loss/val": val_loss,
+                "mae/train": train_mae,
+                "mae/val": val_mae,
+                "lr": current_lr,
+                "params/total": params_total,
+                "params/trainable": params_train,
+                **mae_by_age_logs,
+            }
+        )
 
         # epoch 5번마다 Checkpoint 저장
         if epoch % 5 == 0 or epoch == args.epochs:
             ckpt_path = os.path.join(
-                args.save_dir, f"{args.model_type}_W{args.width}_F{args.feat_dim}_E{epoch}.pt"
+                args.save_dir,
+                f"{args.model_type}_W{args.width}_F{args.feat_dim}_E{epoch}.pt",
             )
-            torch.save({
-                "model": model.state_dict(),
-                "head": head.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch
-            }, ckpt_path)
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "head": head.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "epoch": epoch,
+                },
+                ckpt_path,
+            )
             print(f"Saved checkpoint → {ckpt_path}")
             wandb.log({"checkpoint/saved_epoch": epoch})
 
     wandb.finish()
     print("Training complete!")
+
 
 if __name__ == "__main__":
     main()

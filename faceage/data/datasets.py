@@ -40,9 +40,11 @@ def _parse_utkface_filename(path):
     리턴값:
         (int, int, int): (age, gender, race)
     """
-    base = os.path.basename(path)      # 경로에서 이미지 파일명만 떼옴
-    stem = base.split(".")[0]          # 확장자(.jpg) 제거
-    age, gender, race = map(int, stem.split("_")[:3])  # 파일명에서 앞 세 개를 age/gender/race로 사용
+    base = os.path.basename(path)  # 경로에서 이미지 파일명만 떼옴
+    stem = base.split(".")[0]  # 확장자(.jpg) 제거
+    age, gender, race = map(
+        int, stem.split("_")[:3]
+    )  # 파일명에서 앞 세 개를 age/gender/race로 사용
     return age, gender, race
 
 
@@ -60,10 +62,12 @@ def _soft_label(age: int, num_bins: int = 91, sigma: float = 1.5) -> torch.Tenso
     """
     # 나이가 범위 밖으로 나가면 0 ~ num_bins-1 사이로 클리핑(예: 값이 95 > 90으로 클리핑)
     age = max(0, min(num_bins - 1, int(age)))
-    xs = np.arange(num_bins, dtype=np.float32)         # [0, 1, ..., num_bins-1]  정수 배열 
-    g = np.exp(-0.5 * ((xs - age) / sigma) ** 2)       # xs 배열에서 각 값 i에 대해 가우시안 계산
-    g /= g.sum() + 1e-8                                # 합이 1이 되도록 정규화
-    return torch.from_numpy(g)                         # numpy 배열을 torch 텐서로 변환해서 반환.
+    xs = np.arange(num_bins, dtype=np.float32)  # [0, 1, ..., num_bins-1]  정수 배열
+    g = np.exp(
+        -0.5 * ((xs - age) / sigma) ** 2
+    )  # xs 배열에서 각 값 i에 대해 가우시안 계산
+    g /= g.sum() + 1e-8  # 합이 1이 되도록 정규화
+    return torch.from_numpy(g)  # numpy 배열을 torch 텐서로 변환해서 반환.
 
 
 def _race_one_hot(race: int) -> torch.Tensor:
@@ -76,9 +80,9 @@ def _race_one_hot(race: int) -> torch.Tensor:
     리턴값:
         torch.Tensor: (NUM_RACES,) 크기의 one-hot 텐서
     """
-    idx = min(max(int(race), 0), NUM_RACES - 1)         # 인종 인덱스가 범위를 벗어나면 클리핑
-    v = torch.zeros(NUM_RACES, dtype=torch.float32)     # 크기가 NUM_RACES인 텐서 생성
-    v[idx] = 1.0                                        # 해당 인종 인덱스 위치에만 값 1.0 설정
+    idx = min(max(int(race), 0), NUM_RACES - 1)  # 인종 인덱스가 범위를 벗어나면 클리핑
+    v = torch.zeros(NUM_RACES, dtype=torch.float32)  # 크기가 NUM_RACES인 텐서 생성
+    v[idx] = 1.0  # 해당 인종 인덱스 위치에만 값 1.0 설정
     return v
 
 
@@ -96,7 +100,9 @@ def _imread_rgb(path: str) -> np.ndarray:
     return np.array(img)
 
 
-def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[str], List[str]]:
+def _stable_split(
+    paths: List[str], val_ratio: float, seed: int
+) -> Tuple[List[str], List[str]]:
     """
     함수 이름: _stable_split
     기능: 파일 경로 리스트를 train/val로 나누는데,
@@ -104,7 +110,7 @@ def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[s
          항상 같은 방식으로 나누도록 만든다. > 항상 똑같은 train/val 결과 나옴.
     파라미터:
         paths (List[str]): 전체 이미지 경로 리스트
-        val_ratio (float): validation 비율 
+        val_ratio (float): validation 비율
         seed (int): 해시에 섞을 시드 값
     리턴값:
         (List[str], List[str]): (train_paths, val_paths)를 튜플로 반환
@@ -116,9 +122,9 @@ def _stable_split(paths: List[str], val_ratio: float, seed: int) -> Tuple[List[s
         keys.append(int(h, 16))  # 16진수 해시를 10진수 int로 변환
     # 해시 값 기준으로 오름차순 정렬된 인덱스
     order = np.argsort(keys)
-    n = len(paths)                       # 전체 파일 개수
-    n_val = int(round(n * val_ratio))    # val로 보낼 개수
-    val_idx = set(order[:n_val])         # 정렬된 인덱스 중 앞부분(n_val개)을 val 셋으로 사용
+    n = len(paths)  # 전체 파일 개수
+    n_val = int(round(n * val_ratio))  # val로 보낼 개수
+    val_idx = set(order[:n_val])  # 정렬된 인덱스 중 앞부분(n_val개)을 val 셋으로 사용
     train, val = [], []
     for i, p in enumerate(paths):
         # 인덱스가 val_idx에 있으면 val, 아니면 train
@@ -145,14 +151,16 @@ def _filter_by_age(paths: List[str], max_age: int = 90) -> List[str]:
             if age <= max_age:
                 kept.append(p)
             else:
-                dropped += 1 
+                dropped += 1
         except Exception:
             # 파일명 파싱 실패한 건 그냥 스킵
             continue
 
     print(f"[UTKFace] Removed {dropped} images with age > {max_age}")
     # 필터링 후 샘플이 너무 적으면 assert로 막아둠
-    assert len(kept) > 100, f"[UTKFace] Too few samples after filtering (<= {max_age}yrs)"
+    assert (
+        len(kept) > 100
+    ), f"[UTKFace] Too few samples after filtering (<= {max_age}yrs)"
     return kept
 
 
@@ -162,21 +170,24 @@ class UTKFaceCfg:
     클래스 이름: UTKFaceCfg
     기능: UTKFaceDataset에서 쓸 설정들을 한 군데에 모아 둔 설정용 클래스
     """
-    root: str                           # 데이터 루트 경로
-    split: str = "train"                # "train" | "val"
-    img_size: int = 200                 # 리사이즈 할 이미지 크기
-    num_bins: int = 91                  # age bin 개수
-    sigma: float = 1.5                  # soft label 가우시안 폭
-    label_type: str = "soft"            # "soft" | "hard"
-    augment_minority_only: bool = False # True면 White(0) 제외 인종만 train 증강
 
-    aug_strength: str = "medium"        # 기본 증강 강도, "weak" | "medium" | "strong" | "none"
-    use_age_group_aug: bool = False     # 나이대 별로 다른 transform 쓸지 여부
-    aug_dup: int = 1                    # 전체 데이터 중복 배수
+    root: str  # 데이터 루트 경로
+    split: str = "train"  # "train" | "val"
+    img_size: int = 200  # 리사이즈 할 이미지 크기
+    num_bins: int = 91  # age bin 개수
+    sigma: float = 1.5  # soft label 가우시안 폭
+    label_type: str = "soft"  # "soft" | "hard"
+    augment_minority_only: bool = False  # True면 White(0) 제외 인종만 train 증강
 
-    use_random_erase: bool = False      # Random erase 사용할지 여부
-    erase_prob: float = 0.2             # Random erase 확률
-    use_age_group_aug_dup: bool = False # 나이대 별 dup 설정을 쓸지 여부
+    aug_strength: str = (
+        "medium"  # 기본 증강 강도, "weak" | "medium" | "strong" | "none"
+    )
+    use_age_group_aug: bool = False  # 나이대 별로 다른 transform 쓸지 여부
+    aug_dup: int = 1  # 전체 데이터 중복 배수
+
+    use_random_erase: bool = False  # Random erase 사용할지 여부
+    erase_prob: float = 0.2  # Random erase 확률
+    use_age_group_aug_dup: bool = False  # 나이대 별 dup 설정을 쓸지 여부
 
 
 class UTKFaceDataset(Dataset):
@@ -187,6 +198,7 @@ class UTKFaceDataset(Dataset):
          - __len__: 전체 샘플 수 반환 (dup 포함)
          - __getitem__: 주어진 인덱스로 (이미지 텐서, 라벨, 인종 one-hot, 나이)의 샘플 하나를 뽑아줌
     """
+
     def __init__(self, cfg: UTKFaceCfg, file_list: Optional[List[str]] = None):
         """
         함수 이름: __init__
@@ -229,20 +241,20 @@ class UTKFaceDataset(Dataset):
             size=cfg.img_size,
         )
 
-        # 나이대별 transform (강도 다르게) 
+        # 나이대별 transform (강도 다르게)
         self.age_group_transforms = None
         if cfg.use_age_group_aug and cfg.split == "train":
             # 나이대별로 다른 강도를 쓰기 위한 dict
             self.age_group_transforms = {}
             for name, lo, hi in AGE_GROUPS:
                 # 나이대 구간에 따라 강도 다르게
-                if hi <= 19:          # 00–09, 10–19
+                if hi <= 19:  # 00–09, 10–19
                     strength = "medium"
-                elif hi <= 39:        # 20–29, 30–39
+                elif hi <= 39:  # 20–29, 30–39
                     strength = "weak"
-                elif hi <= 59:        # 40–49, 50–59
+                elif hi <= 59:  # 40–49, 50–59
                     strength = "medium"
-                else:                 # 60–69, 70–79, 80–89
+                else:  # 60–69, 70–79, 80–89
                     strength = "strong"
 
                 # 해당 나이대 이름(name)으로 transform 기록
@@ -283,9 +295,9 @@ class UTKFaceDataset(Dataset):
             if cfg.use_age_group_aug_dup:
                 # 나이대별 dup 적용 옵션
                 for i, path in enumerate(self.paths):
-                    age, _, _ = _parse_utkface_filename(path) # 파일명에서 age 파싱
-                    group = age_to_group_name(age)            # age > 나이대
-                    dup = self.age_group_dup.get(group, 1)    # 매핑 없으면 1배
+                    age, _, _ = _parse_utkface_filename(path)  # 파일명에서 age 파싱
+                    group = age_to_group_name(age)  # age > 나이대
+                    dup = self.age_group_dup.get(group, 1)  # 매핑 없으면 1배
 
                     # 필요하면 dup에 global_dup를 곱해서 더 키울 수도 있음
                     # dup = dup * self.global_dup
@@ -370,7 +382,7 @@ class UTKFaceDataset(Dataset):
 
         # 이미지, 나이 라벨, 인종 one-hot, 실제 나이 텐서를 튜플로 반환
         return img.float(), label.float(), race_oh, torch.tensor(age, dtype=torch.long)
-    
+
 
 # ---------- DataLoader Builder ----------
 def _seed_worker(worker_id):
@@ -384,6 +396,7 @@ def _seed_worker(worker_id):
         없음
     """
     import random
+
     # torch.initial_seed():base seed 값
     # 2**32로 나눠서 numpy/random seed로 사용
     np.random.seed(torch.initial_seed() % 2**32)
@@ -410,24 +423,28 @@ def _env_defaults():
 
 
 def build_dataloaders(
-    root: str,                          # 이미지가 들어 있는 루트 디렉토리
-    batch_size: int = 64,               # 배치 크기
-    num_workers: Optional[int] = None,  # DataLoader worker 수 (None이면 환경 기본값 사용)
-    img_size: int = 200,                # 리사이즈할 이미지 크기
-    num_bins: int = 91,                 # age bin 개수
-    sigma: float = 1.5,                 # soft label 가우시안 폭
-    label_type: str = "soft",           # "soft" | "hard"
-    augment_minority_only: bool = False,# 인종 불균형 관련 옵션 (현재 내부에서 직접 사용 X)
-    val_ratio: float = 0.2,             # 전체 중 val 비율
-    seed: int = 42,                     # split 및 DataLoader generator seed
-    pin_memory: Optional[bool] = None,  # DataLoader pin_memory 설정 (None이면 환경 기본값)
-    max_age: int = 90,                  # 이 나이보다 큰 샘플은 제거
-    aug_strength: str = "medium",       # 기본 증강 강도
-    use_age_group_aug: bool = False,    # 나이대별로 다른 transform 쓸지 여부
-    aug_dup: int = 1,                   # 전체 데이터 dup 배수
-    use_random_erase: bool = False,     # Random Erase 사용 여부
-    erase_prob: float = 0.2,            # Random Erase 확률
-    use_age_group_aug_dup: bool = False,# 나이대별 dup 설정 사용할지 여부
+    root: str,  # 이미지가 들어 있는 루트 디렉토리
+    batch_size: int = 64,  # 배치 크기
+    num_workers: Optional[
+        int
+    ] = None,  # DataLoader worker 수 (None이면 환경 기본값 사용)
+    img_size: int = 200,  # 리사이즈할 이미지 크기
+    num_bins: int = 91,  # age bin 개수
+    sigma: float = 1.5,  # soft label 가우시안 폭
+    label_type: str = "soft",  # "soft" | "hard"
+    augment_minority_only: bool = False,  # 인종 불균형 관련 옵션 (현재 내부에서 직접 사용 X)
+    val_ratio: float = 0.2,  # 전체 중 val 비율
+    seed: int = 42,  # split 및 DataLoader generator seed
+    pin_memory: Optional[
+        bool
+    ] = None,  # DataLoader pin_memory 설정 (None이면 환경 기본값)
+    max_age: int = 90,  # 이 나이보다 큰 샘플은 제거
+    aug_strength: str = "medium",  # 기본 증강 강도
+    use_age_group_aug: bool = False,  # 나이대별로 다른 transform 쓸지 여부
+    aug_dup: int = 1,  # 전체 데이터 dup 배수
+    use_random_erase: bool = False,  # Random Erase 사용 여부
+    erase_prob: float = 0.2,  # Random Erase 확률
+    use_age_group_aug_dup: bool = False,  # 나이대별 dup 설정 사용할지 여부
 ):
     """
     함수 이름: build_dataloaders
@@ -455,39 +472,45 @@ def build_dataloaders(
     train_list, val_list = _stable_split(all_paths, val_ratio=val_ratio, seed=seed)
 
     # Train Dataset 생성
-    train_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root,
-        split="train",
-        img_size=img_size,
-        num_bins=num_bins,
-        sigma=sigma,
-        label_type=label_type,
-        augment_minority_only=augment_minority_only,
-        aug_strength=aug_strength,
-        use_age_group_aug=use_age_group_aug,
-        aug_dup=aug_dup,
-        use_random_erase=use_random_erase,
-        erase_prob=erase_prob,
-        use_age_group_aug_dup=use_age_group_aug_dup,
-    ), file_list=train_list)
+    train_ds = UTKFaceDataset(
+        UTKFaceCfg(
+            root=root,
+            split="train",
+            img_size=img_size,
+            num_bins=num_bins,
+            sigma=sigma,
+            label_type=label_type,
+            augment_minority_only=augment_minority_only,
+            aug_strength=aug_strength,
+            use_age_group_aug=use_age_group_aug,
+            aug_dup=aug_dup,
+            use_random_erase=use_random_erase,
+            erase_prob=erase_prob,
+            use_age_group_aug_dup=use_age_group_aug_dup,
+        ),
+        file_list=train_list,
+    )
 
     # Val Dataset 생성
     # 검증용은 증강/dup 거의 안 쓰고 순수 평가 용도로만 사용한다
-    val_ds = UTKFaceDataset(UTKFaceCfg(
-        root=root,
-        split="val",
-        img_size=img_size,
-        num_bins=num_bins,
-        sigma=sigma,
-        label_type=label_type,
-        augment_minority_only=False,
-        aug_strength="none",
-        use_age_group_aug=False,
-        aug_dup=1,
-        use_random_erase=False,
-        erase_prob=0.0,
-        use_age_group_aug_dup=False,
-    ), file_list=val_list)
+    val_ds = UTKFaceDataset(
+        UTKFaceCfg(
+            root=root,
+            split="val",
+            img_size=img_size,
+            num_bins=num_bins,
+            sigma=sigma,
+            label_type=label_type,
+            augment_minority_only=False,
+            aug_strength="none",
+            use_age_group_aug=False,
+            aug_dup=1,
+            use_random_erase=False,
+            erase_prob=0.0,
+            use_age_group_aug_dup=False,
+        ),
+        file_list=val_list,
+    )
 
     # num_workers나 pin_memory가 지정 안 되었다면 환경 기본값 사용
     if num_workers is None or pin_memory is None:
@@ -505,24 +528,24 @@ def build_dataloaders(
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
-        shuffle=True,              # train은 섞어서 사용
+        shuffle=True,  # train은 섞어서 사용
         num_workers=num_workers,
         pin_memory=pin_memory,
         worker_init_fn=_seed_worker,
         generator=g,
-        drop_last=False
+        drop_last=False,
     )
 
     # Val DataLoader
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
-        shuffle=False,             # val은 순서 유지
+        shuffle=False,  # val은 순서 유지
         num_workers=num_workers,
         pin_memory=pin_memory,
         worker_init_fn=_seed_worker,
         generator=g,
-        drop_last=False
+        drop_last=False,
     )
 
     # 두 개 다 반환

@@ -11,6 +11,7 @@ AGE_GROUPS = [
     ("80-89", 80, 89),
 ]
 
+
 def age_to_group_name(age: int) -> str:
     for name, lo, hi in AGE_GROUPS:
         if lo <= age <= hi:

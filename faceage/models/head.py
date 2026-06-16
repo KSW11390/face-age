@@ -2,7 +2,8 @@
 import torch
 import torch.nn as nn
 
-NUM_RACES = 5 # (White, Black, Asian, Indian, Others)
+NUM_RACES = 5  # (White, Black, Asian, Indian, Others)
+
 
 class SoftHead(nn.Module):
     def __init__(
@@ -26,10 +27,14 @@ class SoftHead(nn.Module):
             nn.Linear(hidden, num_bins, bias=True),
         )
 
-    def forward(self, feats: torch.Tensor, races: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, feats: torch.Tensor, races: torch.Tensor | None = None
+    ) -> torch.Tensor:
         if self.use_race:
             if races is None:
-                raise ValueError("SoftHead(use_race=True)인데 races=None이 들어왔습니다.")
+                raise ValueError(
+                    "SoftHead(use_race=True)인데 races=None이 들어왔습니다."
+                )
             x = torch.cat([feats, races], dim=1)
         else:
             x = feats
