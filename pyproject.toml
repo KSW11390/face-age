@@ -21,6 +21,10 @@ colab = [
 ]
 dev = ["pytest", "ruff", "black"]
 
+[tool.black]
+target-version = ["py310"]
+line-length = 88
+
 [tool.setuptools] # setuptools에게 패키지가 뭔지 알려줌!
 packages = ["faceage"]
 
