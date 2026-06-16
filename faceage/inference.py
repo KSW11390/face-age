@@ -12,11 +12,16 @@ from models.head import SoftHead
 
 
 def get_activation(act_name):  # 활성화 함수 리턴
-    if act_name == 'relu': return nn.ReLU(inplace=True)
-    elif act_name == 'leakyrelu': return nn.LeakyReLU(0.1, inplace=True)
-    elif act_name == 'gelu': return nn.GELU()
-    elif act_name == 'elu': return nn.ELU()
-    else: return nn.ReLU(inplace=True)
+    if act_name == 'relu':
+        return nn.ReLU(inplace=True)
+    elif act_name == 'leakyrelu':
+        return nn.LeakyReLU(0.1, inplace=True)
+    elif act_name == 'gelu':
+        return nn.GELU()
+    elif act_name == 'elu':
+        return nn.ELU()
+    else:
+        return nn.ReLU(inplace=True)
 
 def parse_args():  # 파싱 코드
     parser = argparse.ArgumentParser(description="Inference using Trained Checkpoint")
@@ -90,7 +95,8 @@ def main():     # 모델과 헤드 로드 -> 정방향 패스 -> 추론 -> 결�
     with torch.no_grad():
         for img_path in image_files:
             input_tensor = preprocess_image(img_path)
-            if input_tensor is None: continue
+            if input_tensor is None:
+                continue
             
             input_tensor = input_tensor.to(args.device)
             feats = model(input_tensor)

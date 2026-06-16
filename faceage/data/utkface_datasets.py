@@ -1,7 +1,4 @@
 # faceage/data/utkface_dataset.py
-from torch.utils.data import Dataset
-from PIL import Image
-
 AGE_GROUPS = [
     ("00-09", 0, 9),
     ("10-19", 10, 19),

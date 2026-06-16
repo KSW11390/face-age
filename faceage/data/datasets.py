@@ -1,5 +1,7 @@
 # faceage/data/datasets.py
-import os, glob, hashlib
+import os
+import glob
+import hashlib
 import numpy as np
 from dataclasses import dataclass
 from typing import Tuple, List, Optional
@@ -10,7 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 from .transforms import build_transforms, to_pil
-from faceage.data.constants import AGE_GROUPS, RACE_NAMES, NUM_RACES
+from faceage.data.constants import AGE_GROUPS, NUM_RACES
 
 
 def age_to_group_name(age: int) -> str:

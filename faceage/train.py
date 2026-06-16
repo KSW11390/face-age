@@ -13,7 +13,6 @@ import wandb
 import torch.nn as nn
 import torch.nn.functional as F 
 from tqdm import tqdm
-from datetime import datetime
 
 from faceage.data.datasets import build_dataloaders
 from faceage.models.model_factory import build_model
@@ -273,7 +272,8 @@ def main():
         )
         print(f"[DEBUG] train={len(train_loader.dataset)}  val={len(val_loader.dataset)}")
     except Exception as e:
-        import traceback, glob
+        import traceback
+        import glob
         print("[ERROR] build_dataloaders failed:", type(e).__name__, e)
         print("[DEBUG] data_root=", args.data_root)
         print("[DEBUG] some files:",
